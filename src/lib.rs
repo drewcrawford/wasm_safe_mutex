@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A WebAssembly-safe mutex that papers over platform-specific locking constraints.
 //!
 //! ![logo](../../../art/logo.png)

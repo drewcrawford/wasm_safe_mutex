@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["concurrency", "lock", "mutex", "spinlock", "wasm"]
 categories = ["asynchronous", "concurrency", "wasm" ]
 exclude = [".*"]
-rust-version = "1.85.0" # todo?
+rust-version = "1.85.1"
 
 [dependencies]
 continue = "0.1"

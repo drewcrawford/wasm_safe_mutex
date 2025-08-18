@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Guard type for mutex locks.
 //!
 //! This module provides the `Guard` type that wraps access to mutex-protected data.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A simple spinlock implementation for short-lived critical sections.
 //!
 //! This module provides a spinlock that is used internally by the main mutex
