@@ -77,12 +77,12 @@ impl<T: std::fmt::Display> std::fmt::Display for Guard<'_, T> {
 
 impl<T> AsRef<T> for Guard<'_, T> {
     fn as_ref(&self) -> &T {
-        &**self
+        self
     }
 }
 
 impl<T> AsMut<T> for Guard<'_, T> {
     fn as_mut(&mut self) -> &mut T {
-        &mut **self
+        self
     }
 }

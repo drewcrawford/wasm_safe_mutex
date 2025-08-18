@@ -502,7 +502,7 @@ impl<T> Mutex<T> {
         //pop the waiting threads
         let threads = self
             .waiting_sync_threads
-            .with_mut(|threads| threads.drain(..).collect::<Vec<_>>());
+            .with_mut(std::mem::take);
         for thread in threads {
             // Wake up the thread
             thread.unpark();
@@ -510,7 +510,7 @@ impl<T> Mutex<T> {
         // Notify any async tasks waiting on this mutex
         let senders = self
             .waiting_async_threads
-            .with_mut(|senders| senders.drain(..).collect::<Vec<_>>());
+            .with_mut(std::mem::take);
         for sender in senders {
             // Send a signal to wake up the async task
             sender.send(());
