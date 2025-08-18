@@ -1,5 +1,33 @@
+//! A simple spinlock implementation for short-lived critical sections.
+//!
+//! This module provides a spinlock that is used internally by the main mutex
+//! implementation for managing waiting thread lists.
+
 use std::cell::UnsafeCell;
 
+/// A spinlock for protecting short-lived critical sections.
+///
+/// This spinlock uses atomic operations to provide mutual exclusion without
+/// blocking. It's designed for very short critical sections where the overhead
+/// of thread parking would be greater than spinning.
+///
+/// The spinlock only exposes a `with_mut` method to ensure all accesses are
+/// short-lived and the lock is automatically released.
+///
+/// # Examples
+///
+/// ```
+/// use wasm_safe_mutex::spinlock::Spinlock;
+///
+/// let spinlock = Spinlock::new(vec![1, 2, 3]);
+/// 
+/// let sum = spinlock.with_mut(|data| {
+///     data.push(4);
+///     data.iter().sum::<i32>()
+/// });
+/// 
+/// assert_eq!(sum, 10);
+/// ```
 #[derive(Debug)]
 pub struct Spinlock<T> {
     data: UnsafeCell<T>,
@@ -7,6 +35,17 @@ pub struct Spinlock<T> {
 }
 
 impl<T> Spinlock<T> {
+    /// Creates a new spinlock with the given initial value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::spinlock::Spinlock;
+    ///
+    /// let spinlock = Spinlock::new(42);
+    /// let value = spinlock.with_mut(|data| *data);
+    /// assert_eq!(value, 42);
+    /// ```
     pub fn new(data: T) -> Self {
         Spinlock {
             data: UnsafeCell::new(data),
@@ -14,9 +53,65 @@ impl<T> Spinlock<T> {
         }
     }
 
-    /**
-    By design, we only expose this func to ensure all accesses are short-lived.
-    */
+    /// Executes a closure with exclusive access to the protected data.
+    ///
+    /// This method acquires the spinlock, executes the provided closure with
+    /// a mutable reference to the data, and then releases the lock. The lock
+    /// is guaranteed to be released even if the closure panics.
+    ///
+    /// By design, this is the only way to access the data, ensuring all
+    /// accesses are short-lived and the lock is automatically released.
+    ///
+    /// # Performance
+    ///
+    /// This method spins in a tight loop until the lock is acquired. Keep
+    /// the critical section as short as possible to minimize contention.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::spinlock::Spinlock;
+    ///
+    /// let counter = Spinlock::new(0);
+    /// 
+    /// // Increment the counter
+    /// counter.with_mut(|count| *count += 1);
+    /// 
+    /// // Read and modify in one operation
+    /// let doubled = counter.with_mut(|count| {
+    ///     *count *= 2;
+    ///     *count
+    /// });
+    /// 
+    /// assert_eq!(doubled, 2);
+    /// ```
+    ///
+    /// ## Thread Safety
+    ///
+    /// ```
+    /// use wasm_safe_mutex::spinlock::Spinlock;
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// let shared = Arc::new(Spinlock::new(0));
+    /// let mut handles = vec![];
+    /// 
+    /// for _ in 0..4 {
+    ///     let shared = Arc::clone(&shared);
+    ///     handles.push(thread::spawn(move || {
+    ///         for _ in 0..25 {
+    ///             shared.with_mut(|n| *n += 1);
+    ///         }
+    ///     }));
+    /// }
+    /// 
+    /// for handle in handles {
+    ///     handle.join().unwrap();
+    /// }
+    /// 
+    /// let final_value = shared.with_mut(|n| *n);
+    /// assert_eq!(final_value, 100);
+    /// ```
     pub fn with_mut<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut T) -> R,
