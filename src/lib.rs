@@ -37,6 +37,7 @@ impl<T> Drop for Guard<'_, T> {
 #[derive(Debug)]
 pub struct NotAvailable;
 
+#[derive(Debug)]
 pub struct Mutex<T> {
     inner: UnsafeCell<T>,
     data_lock: AtomicBool,
@@ -151,9 +152,9 @@ impl<T> Mutex<T> {
     /**
     Performs an appropriate lock operation based on the context.
 
-    Usually this is implemented with [lock_block], but in contexts where
+    Usually this is implemented with [`Self::lock_block`], but in contexts where
     blocking is forbidden, such as the main thread on wasm32, it is implemented with
-    [lock_spin].
+    [`Self::lock_spin`].
     */
     pub fn lock_sync(&self) -> Guard<'_, T> {
         #[cfg(not(target_arch = "wasm32"))]
@@ -190,6 +191,51 @@ export function supportsAtomicsWait() {
                 self.lock_spin()
             }
         }
+    }
+
+    /**
+    Accesses the data inside the mutex synchronously.
+
+    This method is preferred in sync context because other accessors may be blocking or spinning,
+    and this helps keep the critical section as short as possible.
+    */
+    pub fn with_sync<R, F: FnOnce(&T) -> R>(&self, f: F) -> R {
+        let guard = self.lock_sync();
+        f(&guard)
+    }
+    /**
+    Accesses the data inside the mutex synchronously.
+
+    This method is preferred in sync context because other accessors may be blocking or spinning,
+    and this helps keep the critical section as short as possible.
+    */
+    pub fn with_mut_sync<R, F: FnOnce(&mut T) -> R>(&self, f: F) -> R {
+        let mut guard = self.lock_sync();
+        f(&mut guard)
+    }
+
+    /**
+    Accesses the data inside the mutex asynchronously.
+
+    This method is preferred in async context because a) it does not block the async executor,
+    and b) other accessors may be blocking or spinning, and this helps keep the critical section as
+    short as possible.
+    */
+    pub async fn with_async<R, F: FnOnce(&T) -> R>(&self, f: F) -> R {
+        let guard = self.lock_async().await;
+        f(&guard)
+    }
+
+    /**
+    Accesses the data inside the mutex asynchronously.
+
+    This method is preferred in async context because a) it does not block the async executor,
+    and b) other accessors may be blocking or spinning, and this helps keep the critical section as
+    short as possible.
+    */
+    pub async fn with_mut_async<R, F: FnOnce(&mut T) -> R>(&self, f: F) -> R {
+        let mut guard = self.lock_async().await;
+        f(&mut guard)
     }
 }
 

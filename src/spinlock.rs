@@ -1,5 +1,6 @@
 use std::cell::UnsafeCell;
 
+#[derive(Debug)]
 pub struct Spinlock<T> {
     data: UnsafeCell<T>,
     locked: std::sync::atomic::AtomicBool,
