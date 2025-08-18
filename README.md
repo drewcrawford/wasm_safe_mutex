@@ -1,5 +1,7 @@
 # wasm_safe_mutex
 
+![logo](art/logo.png)
+
 A WebAssembly-safe mutex that papers over platform-specific locking constraints.
 
 ## The Core Problem

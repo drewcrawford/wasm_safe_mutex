@@ -1,0 +1,4 @@
+wasm_safe_mutex https://sealedabstract.com/code/wasm_safe_mutex
+A mutex safe for use in browsers on the main thread
+Copyright 2025 Drew Crawford.
+

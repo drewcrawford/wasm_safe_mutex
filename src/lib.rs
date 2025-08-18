@@ -1,5 +1,7 @@
 //! A WebAssembly-safe mutex that papers over platform-specific locking constraints.
 //!
+//! ![logo](../../../art/logo.png)
+//!
 //! # The Core Problem
 //!
 //! **WebAssembly's main thread cannot use blocking locks** - attempting to do so will panic
