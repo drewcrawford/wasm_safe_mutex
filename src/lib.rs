@@ -170,6 +170,33 @@ impl<T> Drop for Guard<'_, T> {
     }
 }
 
+// Boilerplate trait implementations for Guard
+impl<T: std::fmt::Debug> std::fmt::Debug for Guard<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Guard")
+            .field("data", &**self)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for Guard<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&**self, f)
+    }
+}
+
+impl<T> AsRef<T> for Guard<'_, T> {
+    fn as_ref(&self) -> &T {
+        &**self
+    }
+}
+
+impl<T> AsMut<T> for Guard<'_, T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut **self
+    }
+}
+
 /// Error returned when a lock cannot be immediately acquired.
 ///
 /// This error is returned by [`Mutex::try_lock`] when the mutex is already
@@ -189,8 +216,24 @@ impl<T> Drop for Guard<'_, T> {
 ///     Err(NotAvailable) => println!("Lock is held by another thread"),
 /// }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NotAvailable;
+
+// ================================================================================================
+// Boilerplate trait implementations
+// ================================================================================================
+
+impl std::fmt::Display for NotAvailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "lock not available")
+    }
+}
+
+impl std::error::Error for NotAvailable {}
+
+// ================================================================================================
+// Main types
+// ================================================================================================
 
 /// A mutual exclusion primitive that works across native and WebAssembly targets.
 ///
@@ -851,6 +894,72 @@ export function supportsAtomicsWait() {
 
 unsafe impl<T: Send> Send for Mutex<T> {}
 unsafe impl<T: Send> Sync for Mutex<T> {}
+
+// Boilerplate trait implementations for Mutex
+impl<T: Default> Default for Mutex<T> {
+    /// Creates a new mutex with the default value of the wrapped type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::Mutex;
+    ///
+    /// let mutex: Mutex<i32> = Mutex::default();
+    /// assert_eq!(*mutex.lock_sync(), 0);
+    ///
+    /// let mutex: Mutex<Vec<String>> = Mutex::default();
+    /// assert!(mutex.lock_sync().is_empty());
+    /// ```
+    fn default() -> Self {
+        Mutex::new(T::default())
+    }
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for Mutex<T> {
+    /// Formats the mutex by attempting to acquire the lock and formatting the contained value.
+    ///
+    /// If the lock cannot be acquired immediately, displays a placeholder message.
+    /// This prevents blocking during formatting operations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::Mutex;
+    ///
+    /// let mutex = Mutex::new(42);
+    /// println!("{}", mutex); // Prints "42" or "Mutex { <locked> }"
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.try_lock() {
+            Ok(guard) => std::fmt::Display::fmt(&*guard, f),
+            Err(_) => write!(f, "Mutex {{ <locked> }}"),
+        }
+    }
+}
+
+impl<T> From<T> for Mutex<T> {
+    /// Creates a new mutex from the given value.
+    ///
+    /// This is equivalent to [`Mutex::new`] but can be more convenient
+    /// in generic contexts or when using turbofish syntax.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::Mutex;
+    ///
+    /// let mutex = Mutex::from(42);
+    /// assert_eq!(*mutex.lock_sync(), 42);
+    ///
+    /// // Useful in generic contexts
+    /// fn create_mutex<T>(value: T) -> Mutex<T> {
+    ///     Mutex::from(value)
+    /// }
+    /// ```
+    fn from(value: T) -> Self {
+        Mutex::new(value)
+    }
+}
 
 #[cfg(test)]
 mod tests {

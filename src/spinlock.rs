@@ -134,3 +134,73 @@ impl<T> Spinlock<T> {
 
 unsafe impl<T: Send> Send for Spinlock<T> {}
 unsafe impl<T: Send> Sync for Spinlock<T> {}
+
+// ================================================================================================
+// Boilerplate trait implementations
+// ================================================================================================
+
+impl<T: Default> Default for Spinlock<T> {
+    /// Creates a new spinlock with the default value of the wrapped type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::spinlock::Spinlock;
+    ///
+    /// let spinlock: Spinlock<i32> = Spinlock::default();
+    /// let value = spinlock.with_mut(|data| *data);
+    /// assert_eq!(value, 0);
+    ///
+    /// let spinlock: Spinlock<Vec<String>> = Spinlock::default();
+    /// let is_empty = spinlock.with_mut(|data| data.is_empty());
+    /// assert!(is_empty);
+    /// ```
+    fn default() -> Self {
+        Spinlock::new(T::default())
+    }
+}
+
+impl<T> From<T> for Spinlock<T> {
+    /// Creates a new spinlock from the given value.
+    ///
+    /// This is equivalent to [`Spinlock::new`] but can be more convenient
+    /// in generic contexts or when using turbofish syntax.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::spinlock::Spinlock;
+    ///
+    /// let spinlock = Spinlock::from(vec![1, 2, 3]);
+    /// let sum = spinlock.with_mut(|data| data.iter().sum::<i32>());
+    /// assert_eq!(sum, 6);
+    ///
+    /// // Useful in generic contexts
+    /// fn create_spinlock<T>(value: T) -> Spinlock<T> {
+    ///     Spinlock::from(value)
+    /// }
+    /// ```
+    fn from(value: T) -> Self {
+        Spinlock::new(value)
+    }
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for Spinlock<T> {
+    /// Formats the spinlock by attempting to access and format the contained value.
+    ///
+    /// Since spinlocks only provide scoped access through `with_mut`, this
+    /// implementation uses that method to safely access the data for formatting.
+    /// This ensures the lock is properly acquired and released.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::spinlock::Spinlock;
+    ///
+    /// let spinlock = Spinlock::new(42);
+    /// println!("{}", spinlock); // Prints "42"
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.with_mut(|data| std::fmt::Display::fmt(data, f))
+    }
+}
