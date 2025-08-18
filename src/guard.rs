@@ -19,12 +19,12 @@ use crate::Mutex;
 /// use wasm_safe_mutex::Mutex;
 ///
 /// let mutex = Mutex::new(String::from("hello"));
-/// 
+///
 /// // The guard provides access to the protected data
 /// let mut guard = mutex.lock_sync();
 /// guard.push_str(", world!");
 /// assert_eq!(&*guard, "hello, world!");
-/// 
+///
 /// // Lock is released when guard is dropped
 /// drop(guard);
 /// ```

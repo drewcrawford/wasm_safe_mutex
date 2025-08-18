@@ -20,12 +20,12 @@ use std::cell::UnsafeCell;
 /// use wasm_safe_mutex::spinlock::Spinlock;
 ///
 /// let spinlock = Spinlock::new(vec![1, 2, 3]);
-/// 
+///
 /// let sum = spinlock.with_mut(|data| {
 ///     data.push(4);
 ///     data.iter().sum::<i32>()
 /// });
-/// 
+///
 /// assert_eq!(sum, 10);
 /// ```
 #[derive(Debug)]
@@ -73,16 +73,16 @@ impl<T> Spinlock<T> {
     /// use wasm_safe_mutex::spinlock::Spinlock;
     ///
     /// let counter = Spinlock::new(0);
-    /// 
+    ///
     /// // Increment the counter
     /// counter.with_mut(|count| *count += 1);
-    /// 
+    ///
     /// // Read and modify in one operation
     /// let doubled = counter.with_mut(|count| {
     ///     *count *= 2;
     ///     *count
     /// });
-    /// 
+    ///
     /// assert_eq!(doubled, 2);
     /// ```
     ///
@@ -95,7 +95,7 @@ impl<T> Spinlock<T> {
     ///
     /// let shared = Arc::new(Spinlock::new(0));
     /// let mut handles = vec![];
-    /// 
+    ///
     /// for _ in 0..4 {
     ///     let shared = Arc::clone(&shared);
     ///     handles.push(thread::spawn(move || {
@@ -104,11 +104,11 @@ impl<T> Spinlock<T> {
     ///         }
     ///     }));
     /// }
-    /// 
+    ///
     /// for handle in handles {
     ///     handle.join().unwrap();
     /// }
-    /// 
+    ///
     /// let final_value = shared.with_mut(|n| *n);
     /// assert_eq!(final_value, 100);
     /// ```

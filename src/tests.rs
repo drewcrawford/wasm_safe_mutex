@@ -5,11 +5,11 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
-#[cfg(target_arch = "wasm32")]
-use wasm_thread as thread;
+use r#continue::continuation;
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
-use r#continue::continuation;
+#[cfg(target_arch = "wasm32")]
+use wasm_thread as thread;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[test]
@@ -28,7 +28,7 @@ async fn test_spinlock_concurrent_access() {
     let handles: Vec<_> = (0..10)
         .map(|_| {
             let spinlock = Arc::clone(&spinlock);
-            let (c,r) = continuation();
+            let (c, r) = continuation();
             thread::spawn(move || {
                 for _ in 0..100 {
                     spinlock.with_mut(|data| *data += 1);
@@ -43,7 +43,6 @@ async fn test_spinlock_concurrent_access() {
         h.await;
     }
     assert_eq!(spinlock.with_mut(|data| *data), 1000);
-
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -63,14 +62,14 @@ async fn test_mutex_try_lock_contention() {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     let mutex = Arc::new(Mutex::new(42));
     let guard = mutex.try_lock().unwrap();
-    
+
     let mutex_clone = Arc::clone(&mutex);
     let (c, r) = continuation();
     thread::spawn(move || {
         let failed = mutex_clone.try_lock().is_err();
         c.send(failed);
     });
-    
+
     let failed = r.await;
     assert!(failed);
     drop(guard);
@@ -83,7 +82,7 @@ fn test_mutex_lock_spin() {
     let mut guard = mutex.lock_spin();
     *guard = 42;
     drop(guard);
-    
+
     let guard = mutex.lock_spin();
     assert_eq!(*guard, 42);
 }
@@ -97,7 +96,7 @@ async fn test_mutex_lock_block() {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     let mutex = Arc::new(Mutex::new(0));
     let mutex_clone = Arc::clone(&mutex);
-    
+
     let (c, r) = continuation();
     thread::spawn(move || {
         let mut guard = mutex_clone.lock_block();
@@ -107,14 +106,14 @@ async fn test_mutex_lock_block() {
         thread::sleep(Duration::from_millis(10));
         c.send(());
     });
-    
+
     // Wait for the spawned thread to complete first
     r.await;
-    
-    // Don't use thread::sleep in WASM as it calls Atomics.wait  
+
+    // Don't use thread::sleep in WASM as it calls Atomics.wait
     #[cfg(not(target_arch = "wasm32"))]
     thread::sleep(Duration::from_millis(5));
-    
+
     let guard = mutex.lock_block();
     assert_eq!(*guard, 42);
 }
@@ -166,23 +165,23 @@ fn test_mutex_lock_async() {
 fn test_mutex_async_contention() {
     test_executors::spin_on(async {
         let mutex = Arc::new(Mutex::new(0));
-        
+
         let mutex1 = Arc::clone(&mutex);
         let task1 = async move {
             let mut guard = mutex1.lock_async().await;
             *guard += 1;
             drop(guard);
         };
-        
+
         let mutex2 = Arc::clone(&mutex);
         let task2 = async move {
             let mut guard = mutex2.lock_async().await;
             *guard += 10;
         };
-        
+
         task1.await;
         task2.await;
-        
+
         let guard = mutex.lock_async().await;
         assert_eq!(*guard, 11);
     });
@@ -195,7 +194,7 @@ fn test_guard_drop_releases_lock() {
     {
         let _guard = mutex.lock_spin();
     }
-    
+
     let guard = mutex.try_lock().unwrap();
     assert_eq!(*guard, 42);
 }

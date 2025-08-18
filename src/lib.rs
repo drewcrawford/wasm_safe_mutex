@@ -55,11 +55,11 @@
 //! use wasm_safe_mutex::{Mutex, NotAvailable};
 //!
 //! let mutex = Mutex::new("data");
-//! 
+//!
 //! // First lock succeeds
 //! let guard = mutex.try_lock().unwrap();
 //! assert_eq!(*guard, "data");
-//! 
+//!
 //! // Second lock fails while first is held
 //! let result = mutex.try_lock();
 //! assert!(matches!(result, Err(NotAvailable)));
@@ -72,7 +72,7 @@
 //! use wasm_safe_mutex::Mutex;
 //!
 //! let mutex = Mutex::new(vec![1, 2, 3]);
-//! 
+//!
 //! // Async lock doesn't block the executor
 //! let mut guard = mutex.lock_async().await;
 //! guard.push(4);
@@ -110,17 +110,16 @@
 //! assert_eq!(*mutex.lock_sync(), 100);
 //! ```
 
-pub mod spinlock;
 pub mod guard;
+pub mod spinlock;
 #[cfg(test)]
 mod tests;
 
-use crate::spinlock::Spinlock;
 pub use crate::guard::Guard;
+use crate::spinlock::Spinlock;
 use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicBool;
 use std::thread;
-
 
 /// Error returned when a lock cannot be immediately acquired.
 ///
@@ -173,7 +172,7 @@ impl std::error::Error for NotAvailable {}
 ///
 /// The mutex transparently handles platform differences:
 /// - **Native (main or worker thread)**: Full blocking with thread parking
-/// - **WASM worker threads**: Blocks using `Atomics.wait` 
+/// - **WASM worker threads**: Blocks using `Atomics.wait`
 /// - **WASM main thread**: Spins to avoid "cannot block on main thread" panic
 ///
 /// This automatic adaptation means your code works everywhere without modification.
@@ -312,7 +311,7 @@ impl<T> Mutex<T> {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(vec![1, 2, 3]);
-    /// 
+    ///
     /// let mut guard = mutex.lock_spin();
     /// guard.push(4);
     /// assert_eq!(guard.len(), 4);
@@ -326,7 +325,7 @@ impl<T> Mutex<T> {
     /// # use std::thread;
     ///
     /// let mutex = Arc::new(Mutex::new(0));
-    /// 
+    ///
     /// // Spinning is less efficient than blocking for long waits
     /// let mutex_clone = Arc::clone(&mutex);
     /// thread::spawn(move || {
@@ -368,7 +367,7 @@ impl<T> Mutex<T> {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(String::from("hello"));
-    /// 
+    ///
     /// // This will block if the lock is held by another thread
     /// let mut guard = mutex.lock_block();
     /// guard.push_str(", world!");
@@ -385,7 +384,7 @@ impl<T> Mutex<T> {
     ///
     /// let mutex = Arc::new(Mutex::new(0));
     /// let mutex_clone = Arc::clone(&mutex);
-    /// 
+    ///
     /// // Start a thread that holds the lock briefly
     /// thread::spawn(move || {
     ///     let mut guard = mutex_clone.lock_block();
@@ -393,10 +392,10 @@ impl<T> Mutex<T> {
     ///     # #[cfg(not(target_arch = "wasm32"))]
     ///     thread::sleep(Duration::from_millis(10));
     /// });
-    /// 
+    ///
     /// # #[cfg(not(target_arch = "wasm32"))]
     /// thread::sleep(Duration::from_millis(5));
-    /// 
+    ///
     /// // This blocks efficiently until the lock is available
     /// let guard = mutex.lock_block();
     /// assert_eq!(*guard, 100);
@@ -437,11 +436,11 @@ impl<T> Mutex<T> {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(HashMap::<String, i32>::new());
-    /// 
+    ///
     /// let mut guard = mutex.lock_async().await;
     /// guard.insert("key".to_string(), 42);
     /// drop(guard);
-    /// 
+    ///
     /// let guard = mutex.lock_async().await;
     /// assert_eq!(guard.get("key"), Some(&42));
     /// # });
@@ -456,22 +455,22 @@ impl<T> Mutex<T> {
     /// use std::sync::Arc;
     ///
     /// let mutex = Arc::new(Mutex::new(0));
-    /// 
+    ///
     /// let mutex1 = Arc::clone(&mutex);
     /// let task1 = async move {
     ///     let mut guard = mutex1.lock_async().await;
     ///     *guard += 10;
     /// };
-    /// 
+    ///
     /// let mutex2 = Arc::clone(&mutex);
     /// let task2 = async move {
     ///     let mut guard = mutex2.lock_async().await;
     ///     *guard += 20;
     /// };
-    /// 
+    ///
     /// task1.await;
     /// task2.await;
-    /// 
+    ///
     /// let guard = mutex.lock_async().await;
     /// assert_eq!(*guard, 30);
     /// # });
@@ -500,17 +499,13 @@ impl<T> Mutex<T> {
     }
     fn did_unlock(&self) {
         //pop the waiting threads
-        let threads = self
-            .waiting_sync_threads
-            .with_mut(std::mem::take);
+        let threads = self.waiting_sync_threads.with_mut(std::mem::take);
         for thread in threads {
             // Wake up the thread
             thread.unpark();
         }
         // Notify any async tasks waiting on this mutex
-        let senders = self
-            .waiting_async_threads
-            .with_mut(std::mem::take);
+        let senders = self.waiting_async_threads.with_mut(std::mem::take);
         for sender in senders {
             // Send a signal to wake up the async task
             sender.send(());
@@ -524,7 +519,7 @@ impl<T> Mutex<T> {
     /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
     /// - **WASM main thread**: Falls back to spinning to avoid panic
     ///
-    /// You don't need to worry about "cannot block on main thread" errors - 
+    /// You don't need to worry about "cannot block on main thread" errors -
     /// this method handles that automatically by detecting the environment
     /// and choosing the appropriate strategy.
     ///
@@ -534,7 +529,7 @@ impl<T> Mutex<T> {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(vec!["apple", "banana"]);
-    /// 
+    ///
     /// // Automatically uses the best strategy for the platform
     /// let mut guard = mutex.lock_sync();
     /// guard.push("cherry");
@@ -610,11 +605,11 @@ export function supportsAtomicsWait() {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(vec![1, 2, 3, 4, 5]);
-    /// 
+    ///
     /// // Calculate sum without holding the lock longer than needed
     /// let sum = mutex.with_sync(|data| data.iter().sum::<i32>());
     /// assert_eq!(sum, 15);
-    /// 
+    ///
     /// // Find maximum value
     /// let max = mutex.with_sync(|data| *data.iter().max().unwrap());
     /// assert_eq!(max, 5);
@@ -630,14 +625,14 @@ export function supportsAtomicsWait() {
     ///     ("alice", 100),
     ///     ("bob", 200),
     /// ]));
-    /// 
+    ///
     /// // Perform multiple reads in one critical section
     /// let (total, count) = mutex.with_sync(|map| {
     ///     let total: i32 = map.values().sum();
     ///     let count = map.len();
     ///     (total, count)
     /// });
-    /// 
+    ///
     /// assert_eq!(total, 300);
     /// assert_eq!(count, 2);
     /// ```
@@ -660,7 +655,7 @@ export function supportsAtomicsWait() {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(vec![1, 2, 3]);
-    /// 
+    ///
     /// // Modify and return a value
     /// let new_len = mutex.with_mut_sync(|data| {
     ///     data.push(4);
@@ -676,18 +671,18 @@ export function supportsAtomicsWait() {
     /// use std::collections::HashMap;
     ///
     /// let mutex = Mutex::new(HashMap::new());
-    /// 
+    ///
     /// // Insert multiple values in one critical section
     /// mutex.with_mut_sync(|map| {
     ///     map.insert("temperature", 25);
     ///     map.insert("humidity", 60);
     /// });
-    /// 
+    ///
     /// // Update existing values
     /// let old_temp = mutex.with_mut_sync(|map| {
     ///     map.insert("temperature", 28)
     /// });
-    /// 
+    ///
     /// assert_eq!(old_temp, Some(25));
     /// ```
     pub fn with_mut_sync<R, F: FnOnce(&mut T) -> R>(&self, f: F) -> R {
@@ -711,10 +706,10 @@ export function supportsAtomicsWait() {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(String::from("async world"));
-    /// 
+    ///
     /// let length = mutex.with_async(|s| s.len()).await;
     /// assert_eq!(length, 11);
-    /// 
+    ///
     /// let uppercase = mutex.with_async(|s| s.to_uppercase()).await;
     /// assert_eq!(uppercase, "ASYNC WORLD");
     /// # });
@@ -728,20 +723,20 @@ export function supportsAtomicsWait() {
     /// use std::sync::Arc;
     ///
     /// let shared_state = Arc::new(Mutex::new(vec![1, 2, 3]));
-    /// 
+    ///
     /// let state1 = Arc::clone(&shared_state);
     /// let task1 = async move {
     ///     state1.with_async(|data| data.iter().sum::<i32>()).await
     /// };
-    /// 
+    ///
     /// let state2 = Arc::clone(&shared_state);
     /// let task2 = async move {
     ///     state2.with_async(|data| data.len()).await
     /// };
-    /// 
+    ///
     /// let sum = task1.await;
     /// let len = task2.await;
-    /// 
+    ///
     /// assert_eq!(sum, 6);
     /// assert_eq!(len, 3);
     /// # });
@@ -767,13 +762,13 @@ export function supportsAtomicsWait() {
     /// use wasm_safe_mutex::Mutex;
     ///
     /// let mutex = Mutex::new(vec!["async", "programming"]);
-    /// 
+    ///
     /// // Add an element and return the new length
     /// let new_len = mutex.with_mut_async(|data| {
     ///     data.push("rocks");
     ///     data.len()
     /// }).await;
-    /// 
+    ///
     /// assert_eq!(new_len, 3);
     /// # });
     /// ```
@@ -787,7 +782,7 @@ export function supportsAtomicsWait() {
     /// use std::collections::HashMap;
     ///
     /// let shared_config = Arc::new(Mutex::new(HashMap::new()));
-    /// 
+    ///
     /// // Update configuration from multiple async tasks
     /// let config1 = Arc::clone(&shared_config);
     /// let update1 = async move {
@@ -796,17 +791,17 @@ export function supportsAtomicsWait() {
     ///         cfg.insert("timeout", 30);
     ///     }).await;
     /// };
-    /// 
+    ///
     /// let config2 = Arc::clone(&shared_config);
     /// let update2 = async move {
     ///     config2.with_mut_async(|cfg| {
     ///         cfg.insert("buffer_size", 8192);
     ///     }).await;
     /// };
-    /// 
+    ///
     /// update1.await;
     /// update2.await;
-    /// 
+    ///
     /// let final_size = shared_config.with_async(|cfg| cfg.len()).await;
     /// assert_eq!(final_size, 3);
     /// # });
@@ -885,4 +880,3 @@ impl<T> From<T> for Mutex<T> {
         Mutex::new(value)
     }
 }
-
