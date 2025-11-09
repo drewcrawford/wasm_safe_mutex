@@ -238,7 +238,7 @@ impl<T> Mutex<T> {
     /// let mutex = Mutex::new(42);
     /// assert_eq!(*mutex.lock_sync(), 42);
     /// ```
-    pub fn new(value: T) -> Self {
+    pub const fn new(value: T) -> Self {
         Mutex {
             inner: UnsafeCell::new(value),
             data_lock: AtomicBool::new(false),

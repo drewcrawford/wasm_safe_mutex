@@ -47,7 +47,7 @@ impl<T> Spinlock<T> {
     /// let value = spinlock.with_mut(|data| *data);
     /// assert_eq!(value, 42);
     /// ```
-    pub fn new(data: T) -> Self {
+    pub const fn new(data: T) -> Self {
         Spinlock {
             data: UnsafeCell::new(data),
             locked: std::sync::atomic::AtomicBool::new(false),
