@@ -3,7 +3,9 @@ use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU8};
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+use std::thread;
 use crate::{Guard, NotAvailable};
+use crate::spinlock::Spinlock;
 
 const UNLOCKED: u8 = 0;
 const LOCKED_READ: u8 = 0b1;
@@ -13,7 +15,12 @@ const LOCKED_WRITE: u8 = 0b10000000;
 pub struct RwLock<T> {
     inner: UnsafeCell<T>,
     data_lock: AtomicU8,
+    waiting_sync_read_threads: Spinlock<Vec<thread::Thread>>,
+    waiting_sync_write_threads: Spinlock<Vec<thread::Thread>>,
 }
+
+unsafe impl<T: Send> Send for RwLock<T> {}
+unsafe impl<T: Send> Sync for RwLock<T> {}
 
 pub struct ReadGuard<'a, T> {
     pub(crate) mutex: &'a RwLock<T>,
@@ -50,6 +57,7 @@ impl<'a, T> Drop for ReadGuard<'a, T> {
     fn drop(&mut self) {
         let r = self.mutex.data_lock.fetch_sub(1, Release);
         assert!(r > 0);
+        self.mutex.did_unlock_read();
     }
 }
 
@@ -57,6 +65,7 @@ impl <'a, T> Drop for WriteGuard<'a, T> {
     fn drop(&mut self) {
         let old = self.mutex.data_lock.swap(UNLOCKED, Release);
         assert!(old == LOCKED_WRITE);
+        self.mutex.did_unlock_write();
     }
 }
 
@@ -66,6 +75,8 @@ impl <T> RwLock<T> {
         RwLock {
             inner: UnsafeCell::new(value),
             data_lock: AtomicU8::new(UNLOCKED),
+            waiting_sync_read_threads: Spinlock::new(vec![]),
+            waiting_sync_write_threads: Spinlock::new(vec![]),
         }
     }
 
@@ -130,11 +141,79 @@ impl <T> RwLock<T> {
             }
         }
     }
+
+    pub fn lock_block_read(&self) -> ReadGuard<'_, T> {
+        //insert our thread into the waiting list
+        loop {
+            let r = self.waiting_sync_read_threads.with_mut(|threads| {
+                match self.try_lock_read() {
+                    Ok(guard) => {
+                        // Return the guard
+                        Ok(guard)
+                    }
+                    Err(_) => {
+                        let handle = thread::current();
+                        threads.push(handle);
+                        Err(NotAvailable)
+                    }
+                }
+            });
+            match r {
+                Ok(guard) => return guard,
+                Err(NotAvailable) => thread::park(),
+            }
+        }
+    }
+
+    pub fn lock_block_write(&self) -> WriteGuard<'_, T> {
+        loop {
+            let r = self.waiting_sync_write_threads.with_mut(|threads| {
+                match self.try_lock_write() {
+                    Ok(guard) => {
+                        Ok(guard)
+                    }
+                    Err(_) => {
+                        let handle = thread::current();
+                        threads.push(handle);
+                        Err(NotAvailable)
+                    }
+                }
+            });
+            match r {
+                Ok(guard) => return guard,
+                Err(NotAvailable) => thread::park(),
+            }
+        }
+    }
+
+    pub fn did_unlock_write(&self) {
+        //pop the waiting READ threads
+        let threads = self.waiting_sync_read_threads.with_mut(std::mem::take);
+        for thread in threads {
+            // Wake up the thread
+            thread.unpark();
+        }
+        //AND the write threads
+        let threads = self.waiting_sync_write_threads.with_mut(std::mem::take);
+        for thread in threads {
+            thread.unpark();
+        }
+    }
+
+    pub fn did_unlock_read(&self) {
+        //unlock only WRITE threads
+        let threads = self.waiting_sync_write_threads.with_mut(std::mem::take);
+        for thread in threads {
+            thread.unpark();
+        }
+    }
 }
 
 
 #[cfg(test)] mod test {
     use std::ops::{Deref, DerefMut};
+    use std::sync::Arc;
+    use std::time::Duration;
     use crate::rwlock::{RwLock, LOCKED_WRITE};
 
     #[test] fn test_lock_try() {
@@ -177,5 +256,35 @@ impl <T> RwLock<T> {
 
         let lock = mutex.lock_spin_write();
         drop(lock);
+    }
+
+    #[test] fn test_lock_block() {
+        let mutex = Arc::new(RwLock::new(0));
+        let lock = mutex.lock_block_read();
+        assert_eq!(lock.deref(), &0);
+        let lock2 = mutex.lock_block_read();
+        assert_eq!(lock.deref(), &0);
+        drop(lock2);
+
+        let (tx,rx) = std::sync::mpsc::channel();
+        let mutex_clone = mutex.clone();
+        std::thread::spawn(move || {
+            //indicate thread came up
+            tx.send(()).unwrap();
+            let lock = mutex_clone.lock_block_write();
+            tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(25));
+            drop(lock);
+        });
+        //wait for thread up msg
+        rx.recv().unwrap();
+        assert!(rx.recv_timeout(Duration::from_millis(10)).is_err());
+        drop(lock); //thread should now acquire lock
+        rx.recv().unwrap(); //wait for thread to acquire lock
+        let time = std::time::Instant::now();
+        mutex.lock_block_read();
+        //ensure time took >50ms
+        assert!(time.elapsed() > Duration::from_millis(10));
+
     }
 }
