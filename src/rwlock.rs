@@ -100,6 +100,36 @@ impl <T> RwLock<T> {
             }
         }
     }
+
+    pub fn lock_spin_read(&self) -> ReadGuard<T> {
+        // Spin until we can acquire the lock
+        loop {
+            let r = self.try_lock_read();
+            match r {
+                Ok(r) => {
+                    return r;
+                }
+                Err(_) => {
+                    std::hint::spin_loop();
+
+                }
+            }
+        }
+    }
+    pub fn lock_spin_write(&self) -> WriteGuard<T> {
+        // Spin until we can acquire the lock
+        loop {
+            let r = self.try_lock_write();
+            match r {
+                Ok(r) => {
+                    return r;
+                }
+                Err(_) => {
+                    std::hint::spin_loop();
+                }
+            }
+        }
+    }
 }
 
 
@@ -107,7 +137,7 @@ impl <T> RwLock<T> {
     use std::ops::{Deref, DerefMut};
     use crate::rwlock::{RwLock, LOCKED_WRITE};
 
-    #[test] fn test_lock_spin() {
+    #[test] fn test_lock_try() {
         let mutex = RwLock::new(0);
         let lock = mutex.try_lock_read();
         assert!(lock.is_ok());
@@ -138,5 +168,14 @@ impl <T> RwLock<T> {
         let read_lock = mutex.try_lock_read();
         assert!(read_lock.is_ok());
         assert_eq!(read_lock.as_ref().unwrap().deref(), &2);
+    }
+
+    #[test] fn test_lock_spin() {
+        let mutex = RwLock::new(0);
+        let lock = mutex.lock_spin_read();
+        drop(lock);
+
+        let lock = mutex.lock_spin_write();
+        drop(lock);
     }
 }
