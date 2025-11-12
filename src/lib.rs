@@ -117,7 +117,7 @@ pub mod guard;
 pub mod spinlock;
 #[cfg(test)]
 mod tests;
-mod rwlock;
+pub mod rwlock;
 
 pub use crate::guard::Guard;
 use crate::spinlock::Spinlock;

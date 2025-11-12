@@ -1,11 +1,10 @@
 use std::cell::UnsafeCell;
 use std::fmt::{Display, Formatter, Pointer};
-use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU8};
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::thread;
-use crate::{Guard, NotAvailable};
+use crate::{NotAvailable};
 use crate::spinlock::Spinlock;
 
 const UNLOCKED: u8 = 0;
