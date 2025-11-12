@@ -1,5 +1,5 @@
 use std::cell::UnsafeCell;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter, Pointer};
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU8};
@@ -41,12 +41,44 @@ impl <T> From<T> for RwLock<T> {
 unsafe impl<T: Send> Send for RwLock<T> {}
 unsafe impl<T: Send> Sync for RwLock<T> {}
 
+#[derive(Debug)]
 pub struct ReadGuard<'a, T> {
     pub(crate) mutex: &'a RwLock<T>,
 }
 
+#[derive(Debug)]
 pub struct WriteGuard<'a, T> {
     pub(crate) mutex: &'a RwLock<T>,
+}
+
+impl<'a, T> AsRef<T> for ReadGuard<'a, T> {
+    fn as_ref(&self) -> &T {
+        &*self
+    }
+}
+
+impl<'a, T> AsRef<T> for WriteGuard<'a, T> {
+    fn as_ref(&self) -> &T {
+        &*self
+    }
+}
+
+impl<'a, T> AsMut<T> for WriteGuard<'a, T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut *self
+    }
+}
+
+impl <'a, T> Display for ReadGuard<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.as_ref().fmt(f)
+    }
+}
+
+impl <'a, T> Display for WriteGuard<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.as_ref().fmt(f)
+    }
 }
 
 impl<'a, T> Deref for WriteGuard<'a, T> {
@@ -261,10 +293,19 @@ impl <T> RwLock<T> {
             // Wake up the thread
             thread.unpark();
         }
+        let threads = self.waiting_async_read_threads.with_mut(std::mem::take);
+        for thread in threads {
+            thread.send(())
+        }
+
         //AND the write threads
         let threads = self.waiting_sync_write_threads.with_mut(std::mem::take);
         for thread in threads {
             thread.unpark();
+        }
+        let threads = self.waiting_async_write_threads.with_mut(std::mem::take);
+        for thread in threads {
+            thread.send(())
         }
     }
 
@@ -273,6 +314,10 @@ impl <T> RwLock<T> {
         let threads = self.waiting_sync_write_threads.with_mut(std::mem::take);
         for thread in threads {
             thread.unpark();
+        }
+        let threads = self.waiting_async_write_threads.with_mut(std::mem::take);
+        for thread in threads {
+            thread.send(())
         }
     }
 
