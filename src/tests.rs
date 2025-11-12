@@ -12,8 +12,6 @@ use std::thread;
 #[cfg(target_arch = "wasm32")]
 use wasm_thread as thread;
 
-
-
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[test]
 fn test_spinlock_basic() {

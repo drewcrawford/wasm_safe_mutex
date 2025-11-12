@@ -129,13 +129,13 @@
 //! }
 //! ```
 
+use crate::NotAvailable;
+use crate::guard::{ReadGuard, WriteGuard};
+use crate::spinlock::Spinlock;
 use std::cell::UnsafeCell;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicU8};
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::{Acquire, Relaxed};
-use crate::{NotAvailable};
-use crate::spinlock::Spinlock;
-use crate::guard::{ReadGuard, WriteGuard};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
@@ -144,7 +144,6 @@ use wasm_thread as thread;
 
 pub(crate) const UNLOCKED: u8 = 0;
 pub(crate) const LOCKED_WRITE: u8 = 0b10000000;
-
 
 /// A reader-writer lock that works across native and WebAssembly targets.
 ///
@@ -235,7 +234,7 @@ pub(crate) const LOCKED_WRITE: u8 = 0b10000000;
 /// assert_eq!(sum, 15);
 /// assert_eq!(len, 5);
 /// ```
-#[derive(Debug,Default)]
+#[derive(Debug, Default)]
 pub struct RwLock<T> {
     pub(crate) inner: UnsafeCell<T>,
     pub(crate) data_lock: AtomicU8,
@@ -254,7 +253,7 @@ impl<T: Display> Display for RwLock<T> {
     }
 }
 
-impl <T> From<T> for RwLock<T> {
+impl<T> From<T> for RwLock<T> {
     fn from(value: T) -> Self {
         RwLock::new(value)
     }
@@ -263,7 +262,7 @@ impl <T> From<T> for RwLock<T> {
 unsafe impl<T: Send> Send for RwLock<T> {}
 unsafe impl<T: Send> Sync for RwLock<T> {}
 
-impl <T> RwLock<T> {
+impl<T> RwLock<T> {
     /// Creates a new read-write lock with the given initial value.
     ///
     /// # Examples
@@ -282,7 +281,6 @@ impl <T> RwLock<T> {
             waiting_async_read_threads: Spinlock::new(vec![]),
             waiting_sync_write_threads: Spinlock::new(vec![]),
             waiting_async_write_threads: Spinlock::new(vec![]),
-
         }
     }
 
@@ -321,7 +319,7 @@ impl <T> RwLock<T> {
     /// // This will fail because a writer holds the lock
     /// assert!(matches!(rwlock.try_lock_read(), Err(NotAvailable)));
     /// ```
-    pub fn try_lock_read(&self) -> Result<ReadGuard<'_,T>, NotAvailable> {
+    pub fn try_lock_read(&self) -> Result<ReadGuard<'_, T>, NotAvailable> {
         let r = self.data_lock.fetch_update(Acquire, Relaxed, |f| {
             if f & LOCKED_WRITE != 0 {
                 None
@@ -332,13 +330,8 @@ impl <T> RwLock<T> {
             }
         });
         match r {
-            Ok(_) => {
-                Ok(ReadGuard { mutex: self})
-
-            }
-            Err(_) => {
-                Err(NotAvailable)
-            }
+            Ok(_) => Ok(ReadGuard { mutex: self }),
+            Err(_) => Err(NotAvailable),
         }
     }
 
@@ -381,14 +374,13 @@ impl <T> RwLock<T> {
     /// // This will fail because a reader holds a lock
     /// assert!(matches!(rwlock.try_lock_write(), Err(NotAvailable)));
     /// ```
-    pub fn try_lock_write(&self) -> Result<WriteGuard<'_,T>, NotAvailable> {
-        match self.data_lock.compare_exchange(UNLOCKED, LOCKED_WRITE, Acquire, Relaxed) {
-            Ok(_) => {
-                Ok(WriteGuard { mutex: self })
-            }
-            Err(_) => {
-                Err(NotAvailable)
-            }
+    pub fn try_lock_write(&self) -> Result<WriteGuard<'_, T>, NotAvailable> {
+        match self
+            .data_lock
+            .compare_exchange(UNLOCKED, LOCKED_WRITE, Acquire, Relaxed)
+        {
+            Ok(_) => Ok(WriteGuard { mutex: self }),
+            Err(_) => Err(NotAvailable),
         }
     }
 
@@ -415,7 +407,7 @@ impl <T> RwLock<T> {
     /// // Both readers can access the data
     /// assert_eq!(guard1.len(), guard2.len());
     /// ```
-    pub fn lock_spin_read(&self) -> ReadGuard<'_,T> {
+    pub fn lock_spin_read(&self) -> ReadGuard<'_, T> {
         // Spin until we can acquire the lock
         loop {
             let r = self.try_lock_read();
@@ -425,7 +417,6 @@ impl <T> RwLock<T> {
                 }
                 Err(_) => {
                     std::hint::spin_loop();
-
                 }
             }
         }
@@ -450,7 +441,7 @@ impl <T> RwLock<T> {
     /// guard.push_str(", world!");
     /// assert_eq!(&*guard, "hello, world!");
     /// ```
-    pub fn lock_spin_write(&self) -> WriteGuard<'_,T> {
+    pub fn lock_spin_write(&self) -> WriteGuard<'_, T> {
         // Spin until we can acquire the lock
         loop {
             let r = self.try_lock_write();
@@ -548,18 +539,16 @@ impl <T> RwLock<T> {
     /// ```
     pub fn lock_block_write(&self) -> WriteGuard<'_, T> {
         loop {
-            let r = self.waiting_sync_write_threads.with_mut(|threads| {
-                match self.try_lock_write() {
-                    Ok(guard) => {
-                        Ok(guard)
-                    }
-                    Err(_) => {
-                        let handle = thread::current();
-                        threads.push(handle);
-                        Err(NotAvailable)
-                    }
-                }
-            });
+            let r =
+                self.waiting_sync_write_threads
+                    .with_mut(|threads| match self.try_lock_write() {
+                        Ok(guard) => Ok(guard),
+                        Err(_) => {
+                            let handle = thread::current();
+                            threads.push(handle);
+                            Err(NotAvailable)
+                        }
+                    });
             match r {
                 Ok(guard) => return guard,
                 //aparrently have to use the std version here
@@ -982,16 +971,16 @@ export function supportsAtomicsWait() {
     }
 }
 
-
-
-#[cfg(test)] mod test {
+#[cfg(test)]
+mod test {
+    use super::thread;
+    use crate::rwlock::RwLock;
     use std::ops::{Deref, DerefMut};
     use std::sync::Arc;
     use std::time::Duration;
-    use crate::rwlock::RwLock;
-    use super::thread;
 
-    #[test] fn test_lock_try() {
+    #[test]
+    fn test_lock_try() {
         let mutex = RwLock::new(0);
         let lock = mutex.try_lock_read();
         assert!(lock.is_ok());
@@ -1024,7 +1013,8 @@ export function supportsAtomicsWait() {
         assert_eq!(read_lock.as_ref().unwrap().deref(), &2);
     }
 
-    #[test] fn test_lock_spin() {
+    #[test]
+    fn test_lock_spin() {
         let mutex = RwLock::new(0);
         let lock = mutex.lock_spin_read();
         drop(lock);
@@ -1033,7 +1023,8 @@ export function supportsAtomicsWait() {
         drop(lock);
     }
 
-    #[test] fn test_lock_block() {
+    #[test]
+    fn test_lock_block() {
         let mutex = Arc::new(RwLock::new(0));
         let lock = mutex.lock_block_read();
         assert_eq!(lock.deref(), &0);
@@ -1041,7 +1032,7 @@ export function supportsAtomicsWait() {
         assert_eq!(lock.deref(), &0);
         drop(lock2);
 
-        let (tx,rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel();
         let mutex_clone = mutex.clone();
         thread::spawn(move || {
             //indicate thread came up
@@ -1062,7 +1053,8 @@ export function supportsAtomicsWait() {
         assert!(time.elapsed() > Duration::from_millis(10));
     }
 
-    #[test_executors::async_test] async fn test_async() {
+    #[test_executors::async_test]
+    async fn test_async() {
         let mutex = Arc::new(RwLock::new(0));
         let lock = mutex.lock_async_read().await;
         assert_eq!(lock.deref(), &0);
@@ -1072,7 +1064,8 @@ export function supportsAtomicsWait() {
         drop(lock);
     }
 
-    #[test] fn test_sync() {
+    #[test]
+    fn test_sync() {
         let mutex = Arc::new(RwLock::new(0));
         let lock = mutex.lock_sync_read();
         assert_eq!(lock.deref(), &0);
