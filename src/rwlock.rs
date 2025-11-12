@@ -8,7 +8,6 @@ use crate::{NotAvailable};
 use crate::spinlock::Spinlock;
 
 const UNLOCKED: u8 = 0;
-const LOCKED_READ: u8 = 0b1;
 const LOCKED_WRITE: u8 = 0b10000000;
 
 
@@ -156,7 +155,7 @@ impl <T> RwLock<T> {
 
     pub fn try_lock_write(&self) -> Result<WriteGuard<'_,T>, NotAvailable> {
         match self.data_lock.compare_exchange(UNLOCKED, LOCKED_WRITE, Acquire, Relaxed) {
-            Ok(e) => {
+            Ok(_) => {
                 Ok(WriteGuard { mutex: self })
             }
             Err(_) => {
@@ -418,7 +417,7 @@ export function supportsAtomicsWait() {
     use std::ops::{Deref, DerefMut};
     use std::sync::Arc;
     use std::time::Duration;
-    use crate::rwlock::{RwLock, LOCKED_WRITE};
+    use crate::rwlock::RwLock;
 
     #[test] fn test_lock_try() {
         let mutex = RwLock::new(0);
