@@ -133,7 +133,7 @@ impl <T> RwLock<T> {
         }
     }
 
-    pub fn try_lock_read(&self) -> Result<ReadGuard<T>, NotAvailable> {
+    pub fn try_lock_read(&self) -> Result<ReadGuard<'_,T>, NotAvailable> {
         let r = self.data_lock.fetch_update(Acquire, Relaxed, |f| {
             if f & LOCKED_WRITE != 0 {
                 None
@@ -144,7 +144,7 @@ impl <T> RwLock<T> {
             }
         });
         match r {
-            Ok(e) => {
+            Ok(_) => {
                 Ok(ReadGuard { mutex: self})
 
             }
@@ -154,7 +154,7 @@ impl <T> RwLock<T> {
         }
     }
 
-    pub fn try_lock_write(&self) -> Result<WriteGuard<T>, NotAvailable> {
+    pub fn try_lock_write(&self) -> Result<WriteGuard<'_,T>, NotAvailable> {
         match self.data_lock.compare_exchange(UNLOCKED, LOCKED_WRITE, Acquire, Relaxed) {
             Ok(e) => {
                 Ok(WriteGuard { mutex: self })
@@ -165,7 +165,7 @@ impl <T> RwLock<T> {
         }
     }
 
-    pub fn lock_spin_read(&self) -> ReadGuard<T> {
+    pub fn lock_spin_read(&self) -> ReadGuard<'_,T> {
         // Spin until we can acquire the lock
         loop {
             let r = self.try_lock_read();
@@ -180,7 +180,7 @@ impl <T> RwLock<T> {
             }
         }
     }
-    pub fn lock_spin_write(&self) -> WriteGuard<T> {
+    pub fn lock_spin_write(&self) -> WriteGuard<'_,T> {
         // Spin until we can acquire the lock
         loop {
             let r = self.try_lock_write();
