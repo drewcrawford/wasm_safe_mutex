@@ -1,4 +1,5 @@
 use std::cell::UnsafeCell;
+use std::fmt::Display;
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU8};
@@ -12,6 +13,7 @@ const LOCKED_READ: u8 = 0b1;
 const LOCKED_WRITE: u8 = 0b10000000;
 
 
+#[derive(Debug,Default)]
 pub struct RwLock<T> {
     inner: UnsafeCell<T>,
     data_lock: AtomicU8,
@@ -19,7 +21,21 @@ pub struct RwLock<T> {
     waiting_sync_write_threads: Spinlock<Vec<thread::Thread>>,
     waiting_async_read_threads: Spinlock<Vec<r#continue::Sender<()>>>,
     waiting_async_write_threads: Spinlock<Vec<r#continue::Sender<()>>>,
+}
 
+impl<T: Display> Display for RwLock<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.try_lock_read() {
+            Ok(guard) => std::fmt::Display::fmt(&*guard, f),
+            Err(_) => write!(f, "Mutex {{ <locked> }}"),
+        }
+    }
+}
+
+impl <T> From<T> for RwLock<T> {
+    fn from(value: T) -> Self {
+        RwLock::new(value)
+    }
 }
 
 unsafe impl<T: Send> Send for RwLock<T> {}
@@ -333,8 +349,25 @@ export function supportsAtomicsWait() {
         }
     }
 
+    pub fn with_sync<R, F: FnOnce(&T) -> R>(&self, f: F) -> R {
+        let guard = self.lock_sync_read();
+        f(&guard)
+    }
 
+    pub fn with_mut_sync<R, F: FnOnce(&T) -> R>(&self, f: F) -> R {
+        let mut guard = self.lock_sync_write();
+        f(&mut guard)
+    }
+    pub async fn with_async<R, F: FnOnce(&T) -> R>(&self, f: F) -> R {
+        let guard = self.lock_async_read().await;
+        f(&guard)
+    }
+    pub async fn with_mut_async<R, F: FnOnce(&mut T) -> R>(&self, f: F) -> R {
+        let mut guard = self.lock_async_read_write().await;
+        f(&mut guard)
+    }
 }
+
 
 
 #[cfg(test)] mod test {
