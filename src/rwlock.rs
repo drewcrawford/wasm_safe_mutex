@@ -51,13 +51,13 @@ pub struct WriteGuard<'a, T> {
 
 impl<'a, T> AsRef<T> for ReadGuard<'a, T> {
     fn as_ref(&self) -> &T {
-        &*self
+        self
     }
 }
 
 impl<'a, T> AsRef<T> for WriteGuard<'a, T> {
     fn as_ref(&self) -> &T {
-        &*self
+        self
     }
 }
 
