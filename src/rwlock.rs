@@ -17,6 +17,9 @@ pub struct RwLock<T> {
     data_lock: AtomicU8,
     waiting_sync_read_threads: Spinlock<Vec<thread::Thread>>,
     waiting_sync_write_threads: Spinlock<Vec<thread::Thread>>,
+    waiting_async_read_threads: Spinlock<Vec<r#continue::Sender<()>>>,
+    waiting_async_write_threads: Spinlock<Vec<r#continue::Sender<()>>>,
+
 }
 
 unsafe impl<T: Send> Send for RwLock<T> {}
@@ -76,7 +79,10 @@ impl <T> RwLock<T> {
             inner: UnsafeCell::new(value),
             data_lock: AtomicU8::new(UNLOCKED),
             waiting_sync_read_threads: Spinlock::new(vec![]),
+            waiting_async_read_threads: Spinlock::new(vec![]),
             waiting_sync_write_threads: Spinlock::new(vec![]),
+            waiting_async_write_threads: Spinlock::new(vec![]),
+
         }
     }
 
@@ -186,6 +192,52 @@ impl <T> RwLock<T> {
         }
     }
 
+    pub async fn lock_async_read(&self) -> ReadGuard<'_, T> {
+        loop {
+            let a = self.waiting_async_read_threads.with_mut(|senders| {
+                match self.try_lock_read() {
+                    Ok(guard) => Ok(guard),
+                    Err(NotAvailable) => {
+                        // Create a new channel to signal when the lock is available
+                        let (sender, receiver) = r#continue::continuation();
+                        senders.push(sender);
+                        Err(receiver)
+                    }
+                }
+            });
+            match a {
+                Ok(guard) => return guard,
+                Err(receiver) => {
+                    // Wait for the signal that the lock is available
+                    receiver.await;
+                }
+            }
+        }
+    }
+
+    pub async fn lock_async_read_write(&self) -> WriteGuard<'_, T> {
+        loop {
+            let a = self.waiting_async_write_threads.with_mut(|senders| {
+                match self.try_lock_write() {
+                    Ok(guard) => Ok(guard),
+                    Err(NotAvailable) => {
+                        // Create a new channel to signal when the lock is available
+                        let (sender, receiver) = r#continue::continuation();
+                        senders.push(sender);
+                        Err(receiver)
+                    }
+                }
+            });
+            match a {
+                Ok(guard) => return guard,
+                Err(receiver) => {
+                    // Wait for the signal that the lock is available
+                    receiver.await;
+                }
+            }
+        }
+    }
+
     pub fn did_unlock_write(&self) {
         //pop the waiting READ threads
         let threads = self.waiting_sync_read_threads.with_mut(std::mem::take);
@@ -207,6 +259,8 @@ impl <T> RwLock<T> {
             thread.unpark();
         }
     }
+
+
 }
 
 
@@ -285,6 +339,15 @@ impl <T> RwLock<T> {
         mutex.lock_block_read();
         //ensure time took >50ms
         assert!(time.elapsed() > Duration::from_millis(10));
+    }
 
+    #[test_executors::async_test] async fn test_async() {
+        let mutex = Arc::new(RwLock::new(0));
+        let lock = mutex.lock_async_read().await;
+        assert_eq!(lock.deref(), &0);
+        drop(lock);
+        let lock = mutex.lock_async_read_write().await;
+        assert_eq!(lock.deref(), &0);
+        drop(lock);
     }
 }
