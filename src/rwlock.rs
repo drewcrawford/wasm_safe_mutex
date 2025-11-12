@@ -238,7 +238,7 @@ impl <T> RwLock<T> {
         }
     }
 
-    pub fn did_unlock_write(&self) {
+    fn did_unlock_write(&self) {
         //pop the waiting READ threads
         let threads = self.waiting_sync_read_threads.with_mut(std::mem::take);
         for thread in threads {
@@ -252,11 +252,84 @@ impl <T> RwLock<T> {
         }
     }
 
-    pub fn did_unlock_read(&self) {
+    fn did_unlock_read(&self) {
         //unlock only WRITE threads
         let threads = self.waiting_sync_write_threads.with_mut(std::mem::take);
         for thread in threads {
             thread.unpark();
+        }
+    }
+
+    pub fn lock_sync_read(&self) -> ReadGuard<'_, T> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.lock_block_read()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::prelude::wasm_bindgen;
+            //check if we're on the main thread
+            #[wasm_bindgen(inline_js = "
+export function supportsAtomicsWait() {
+    if (typeof SharedArrayBuffer === 'undefined') return false;
+    if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
+
+    try {
+        const sab = new SharedArrayBuffer(4);
+        const ia = new Int32Array(sab);
+        const result = Atomics.wait(ia, 0, 0, 0);
+        return result === 'timed-out' || result === 'not-equal';
+    } catch (_) {
+        return false;
+    }
+}
+")]
+            extern "C" {
+                fn supportsAtomicsWait() -> bool;
+            }
+
+            if supportsAtomicsWait() {
+                self.lock_block_read()
+            } else {
+                // Fallback to spin lock if Atomics.wait is not supported
+                self.lock_spin_read()
+            }
+        }
+    }
+    pub fn lock_sync_write(&self) -> WriteGuard<'_, T> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.lock_block_write()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::prelude::wasm_bindgen;
+            //check if we're on the main thread
+            #[wasm_bindgen(inline_js = "
+export function supportsAtomicsWait() {
+    if (typeof SharedArrayBuffer === 'undefined') return false;
+    if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
+
+    try {
+        const sab = new SharedArrayBuffer(4);
+        const ia = new Int32Array(sab);
+        const result = Atomics.wait(ia, 0, 0, 0);
+        return result === 'timed-out' || result === 'not-equal';
+    } catch (_) {
+        return false;
+    }
+}
+")]
+            extern "C" {
+                fn supportsAtomicsWait() -> bool;
+            }
+
+            if supportsAtomicsWait() {
+                self.lock_block_write()
+            } else {
+                // Fallback to spin lock if Atomics.wait is not supported
+                self.lock_spin_write()
+            }
         }
     }
 
@@ -347,6 +420,16 @@ impl <T> RwLock<T> {
         assert_eq!(lock.deref(), &0);
         drop(lock);
         let lock = mutex.lock_async_read_write().await;
+        assert_eq!(lock.deref(), &0);
+        drop(lock);
+    }
+
+    #[test] fn test_sync() {
+        let mutex = Arc::new(RwLock::new(0));
+        let lock = mutex.lock_sync_read();
+        assert_eq!(lock.deref(), &0);
+        drop(lock);
+        let lock = mutex.lock_sync_write();
         assert_eq!(lock.deref(), &0);
         drop(lock);
     }
