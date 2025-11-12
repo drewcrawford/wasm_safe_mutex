@@ -130,16 +130,20 @@
 //! ```
 
 use std::cell::UnsafeCell;
-use std::fmt::{Display, Formatter, Pointer};
-use std::ops::{Deref, DerefMut};
+use std::fmt::Display;
 use std::sync::atomic::{AtomicU8};
-use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use std::thread;
+use std::sync::atomic::Ordering::{Acquire, Relaxed};
 use crate::{NotAvailable};
 use crate::spinlock::Spinlock;
+use crate::guard::{ReadGuard, WriteGuard};
 
-const UNLOCKED: u8 = 0;
-const LOCKED_WRITE: u8 = 0b10000000;
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread;
+#[cfg(target_arch = "wasm32")]
+use wasm_thread as thread;
+
+pub(crate) const UNLOCKED: u8 = 0;
+pub(crate) const LOCKED_WRITE: u8 = 0b10000000;
 
 
 /// A reader-writer lock that works across native and WebAssembly targets.
@@ -233,8 +237,8 @@ const LOCKED_WRITE: u8 = 0b10000000;
 /// ```
 #[derive(Debug,Default)]
 pub struct RwLock<T> {
-    inner: UnsafeCell<T>,
-    data_lock: AtomicU8,
+    pub(crate) inner: UnsafeCell<T>,
+    pub(crate) data_lock: AtomicU8,
     waiting_sync_read_threads: Spinlock<Vec<thread::Thread>>,
     waiting_sync_write_threads: Spinlock<Vec<thread::Thread>>,
     waiting_async_read_threads: Spinlock<Vec<r#continue::Sender<()>>>,
@@ -258,133 +262,6 @@ impl <T> From<T> for RwLock<T> {
 
 unsafe impl<T: Send> Send for RwLock<T> {}
 unsafe impl<T: Send> Sync for RwLock<T> {}
-
-/// A guard that provides read-only access to the data protected by an [`RwLock`].
-///
-/// This guard is created by the read locking methods on [`RwLock`]. When the guard
-/// is dropped, the read lock is automatically released, allowing writers to acquire
-/// the lock if no other readers are active.
-///
-/// Multiple `ReadGuard`s can exist simultaneously for the same `RwLock`, enabling
-/// concurrent read access.
-///
-/// # Examples
-///
-/// ```
-/// use wasm_safe_mutex::rwlock::RwLock;
-///
-/// let rwlock = RwLock::new(vec![1, 2, 3]);
-///
-/// {
-///     let guard1 = rwlock.lock_sync_read();
-///     let guard2 = rwlock.lock_sync_read();
-///
-///     // Both guards can read simultaneously
-///     assert_eq!(guard1.len(), 3);
-///     assert_eq!(guard2[0], 1);
-/// } // Both guards dropped, read locks released
-/// ```
-#[derive(Debug)]
-pub struct ReadGuard<'a, T> {
-    pub(crate) mutex: &'a RwLock<T>,
-}
-
-/// A guard that provides exclusive read-write access to the data protected by an [`RwLock`].
-///
-/// This guard is created by the write locking methods on [`RwLock`]. When the guard
-/// is dropped, the write lock is automatically released, allowing other readers or
-/// writers to acquire the lock.
-///
-/// Only one `WriteGuard` can exist at a time for a given `RwLock`, ensuring exclusive
-/// access for modifications.
-///
-/// # Examples
-///
-/// ```
-/// use wasm_safe_mutex::rwlock::RwLock;
-///
-/// let rwlock = RwLock::new(String::from("hello"));
-///
-/// {
-///     let mut guard = rwlock.lock_sync_write();
-///     guard.push_str(", world!");
-///     assert_eq!(&*guard, "hello, world!");
-/// } // Guard dropped, write lock released
-/// ```
-#[derive(Debug)]
-pub struct WriteGuard<'a, T> {
-    pub(crate) mutex: &'a RwLock<T>,
-}
-
-impl<'a, T> AsRef<T> for ReadGuard<'a, T> {
-    fn as_ref(&self) -> &T {
-        self
-    }
-}
-
-impl<'a, T> AsRef<T> for WriteGuard<'a, T> {
-    fn as_ref(&self) -> &T {
-        self
-    }
-}
-
-impl<'a, T> AsMut<T> for WriteGuard<'a, T> {
-    fn as_mut(&mut self) -> &mut T {
-        &mut *self
-    }
-}
-
-impl <'a, T> Display for ReadGuard<'a, T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.as_ref().fmt(f)
-    }
-}
-
-impl <'a, T> Display for WriteGuard<'a, T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.as_ref().fmt(f)
-    }
-}
-
-impl<'a, T> Deref for WriteGuard<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        unsafe{&*self.mutex.inner.get()}
-    }
-}
-
-impl<'a, T> DerefMut for WriteGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe {&mut*self.mutex.inner.get()}
-    }
-}
-
-
-impl<'a, T> Deref for ReadGuard<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe{&*self.mutex.inner.get()}
-    }
-}
-
-impl<'a, T> Drop for ReadGuard<'a, T> {
-    fn drop(&mut self) {
-        let r = self.mutex.data_lock.fetch_sub(1, Release);
-        assert!(r > 0);
-        self.mutex.did_unlock_read();
-    }
-}
-
-impl <'a, T> Drop for WriteGuard<'a, T> {
-    fn drop(&mut self) {
-        let old = self.mutex.data_lock.swap(UNLOCKED, Release);
-        assert!(old == LOCKED_WRITE);
-        self.mutex.did_unlock_write();
-    }
-}
-
 
 impl <T> RwLock<T> {
     /// Creates a new read-write lock with the given initial value.
@@ -632,7 +509,8 @@ impl <T> RwLock<T> {
             });
             match r {
                 Ok(guard) => return guard,
-                Err(NotAvailable) => thread::park(),
+                //have to use the std version here
+                Err(NotAvailable) => std::thread::park(),
             }
         }
     }
@@ -684,7 +562,8 @@ impl <T> RwLock<T> {
             });
             match r {
                 Ok(guard) => return guard,
-                Err(NotAvailable) => thread::park(),
+                //aparrently have to use the std version here
+                Err(NotAvailable) => std::thread::park(),
             }
         }
     }
@@ -791,7 +670,7 @@ impl <T> RwLock<T> {
         }
     }
 
-    fn did_unlock_write(&self) {
+    pub(crate) fn did_unlock_write(&self) {
         //pop the waiting READ threads
         let threads = self.waiting_sync_read_threads.with_mut(std::mem::take);
         for thread in threads {
@@ -814,7 +693,7 @@ impl <T> RwLock<T> {
         }
     }
 
-    fn did_unlock_read(&self) {
+    pub(crate) fn did_unlock_read(&self) {
         //unlock only WRITE threads
         let threads = self.waiting_sync_write_threads.with_mut(std::mem::take);
         for thread in threads {
@@ -1110,6 +989,7 @@ export function supportsAtomicsWait() {
     use std::sync::Arc;
     use std::time::Duration;
     use crate::rwlock::RwLock;
+    use super::thread;
 
     #[test] fn test_lock_try() {
         let mutex = RwLock::new(0);
@@ -1163,12 +1043,12 @@ export function supportsAtomicsWait() {
 
         let (tx,rx) = std::sync::mpsc::channel();
         let mutex_clone = mutex.clone();
-        std::thread::spawn(move || {
+        thread::spawn(move || {
             //indicate thread came up
             tx.send(()).unwrap();
             let lock = mutex_clone.lock_block_write();
             tx.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(25));
+            thread::sleep(Duration::from_millis(25));
             drop(lock);
         });
         //wait for thread up msg

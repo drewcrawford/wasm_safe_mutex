@@ -123,7 +123,11 @@ pub use crate::guard::Guard;
 use crate::spinlock::Spinlock;
 use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicBool;
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
+#[cfg(target_arch = "wasm32")]
+use wasm_thread as thread;
 
 /// Error returned when a lock cannot be immediately acquired.
 ///
@@ -422,7 +426,7 @@ impl<T> Mutex<T> {
             });
             match r {
                 Ok(guard) => return guard,
-                Err(NotAvailable) => thread::park(),
+                Err(NotAvailable) => std::thread::park(),
             }
         }
     }
