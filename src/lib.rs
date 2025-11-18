@@ -113,6 +113,7 @@
 //! assert_eq!(*mutex.lock_sync(), 100);
 //! ```
 
+pub mod condvar;
 pub mod guard;
 pub mod rwlock;
 pub mod spinlock;
