@@ -130,6 +130,11 @@ use std::thread;
 #[cfg(target_arch = "wasm32")]
 use wasm_thread as thread;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
+
 /// Error returned when a lock cannot be immediately acquired.
 ///
 /// This error is returned by [`Mutex::try_lock`] when the mutex is already
@@ -354,6 +359,45 @@ impl<T> Mutex<T> {
         // SAFETY: We have exclusive access to the data now
         let data = unsafe { &mut *self.inner.get() };
         Guard { mutex: self, data }
+    }
+
+    /// Acquires the lock by spinning until it becomes available or the deadline is reached.
+    ///
+    /// This method behaves like [`lock_spin`](Self::lock_spin), but will return `None`
+    /// if the lock cannot be acquired before the specified deadline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::Mutex;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    ///
+    /// let mutex = Mutex::new(0);
+    /// let deadline = Instant::now() + Duration::from_millis(100);
+    ///
+    /// if let Some(mut guard) = mutex.lock_spin_timeout(deadline) {
+    ///     *guard = 42;
+    /// } else {
+    ///     println!("Could not acquire lock in time");
+    /// }
+    /// ```
+    pub fn lock_spin_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
+        // Spin until we can acquire the lock
+        while self
+            .data_lock
+            .swap(true, std::sync::atomic::Ordering::Acquire)
+        {
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::hint::spin_loop();
+        }
+        // SAFETY: We have exclusive access to the data now
+        let data = unsafe { &mut *self.inner.get() };
+        Some(Guard { mutex: self, data })
     }
 
     /// Acquires the lock by blocking the current thread until it becomes available.

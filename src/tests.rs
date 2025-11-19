@@ -4,7 +4,9 @@
 use crate::{Mutex, spinlock::Spinlock};
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::Duration;
+use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
 
 use r#continue::continuation;
 #[cfg(not(target_arch = "wasm32"))]
@@ -198,4 +200,53 @@ fn test_guard_drop_releases_lock() {
 
     let guard = mutex.try_lock().unwrap();
     assert_eq!(*guard, 42);
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
+fn test_mutex_lock_spin_timeout() {
+    let mutex = Mutex::new(0);
+    let deadline = Instant::now() + Duration::from_secs(1);
+
+    // Test successful acquisition
+    if let Some(mut guard) = mutex.lock_spin_timeout(deadline) {
+        *guard = 42;
+    } else {
+        panic!("Failed to acquire lock");
+    }
+
+    assert_eq!(*mutex.lock_spin(), 42);
+}
+
+#[test_executors::async_test]
+async fn test_mutex_lock_spin_timeout_fails() {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    let mutex = Arc::new(Mutex::new(0));
+    let mutex_clone = Arc::clone(&mutex);
+
+    // Lock it in another thread
+    let (c, r) = continuation();
+    thread::spawn(move || {
+        let _guard = mutex_clone.lock_spin();
+        c.send(());
+        // Hold it for a bit
+        #[cfg(not(target_arch = "wasm32"))]
+        thread::sleep(Duration::from_secs(1));
+        #[cfg(target_arch = "wasm32")]
+        {
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_secs(1) {
+                std::hint::spin_loop();
+            }
+        }
+    });
+
+    r.await; // Wait for thread to acquire lock
+
+    // Try to acquire with short timeout
+    let deadline = Instant::now() + Duration::from_millis(10);
+    let result = mutex.lock_spin_timeout(deadline);
+    assert!(result.is_none());
 }
