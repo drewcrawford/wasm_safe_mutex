@@ -4,16 +4,16 @@
 //! This module provides a condition variable that works across native and WebAssembly targets,
 //! automatically adapting its waiting strategy based on the runtime environment.
 
+use crate::{Guard, Spinlock};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::{Guard, Spinlock};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
-use wasm_thread as thread;
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
+#[cfg(target_arch = "wasm32")]
+use wasm_thread as thread;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(inline_js = "
@@ -203,7 +203,11 @@ impl Condvar {
     /// This helper repeatedly evaluates `condition`, calling [`wait_spin`]
     /// whenever more progress is required. The guard returned at the end
     /// always satisfies `condition == false`.
-    pub fn wait_spin_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    pub fn wait_spin_while<'a, T, F>(
+        &self,
+        mut guard: Guard<'a, T>,
+        mut condition: F,
+    ) -> Guard<'a, T>
     where
         F: FnMut(&mut T) -> bool,
     {
@@ -213,6 +217,103 @@ impl Condvar {
         guard
     }
 
+    /// Waits by spinning until this condition variable receives a notification or the deadline is reached.
+    ///
+    /// This method will atomically unlock the mutex specified by the guard and
+    /// spin in a tight loop until notified or the deadline is reached. When a notification is received
+    /// or the timeout expires, the mutex will be re-acquired before returning.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// use web_time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut ready = mutex.lock_sync();
+    ///     *ready = true;
+    ///     drop(ready);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_sync();
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// while !*ready {
+    ///     let result;
+    ///     (ready, result) = condvar.wait_spin_until(ready, deadline);
+    ///     if result.timed_out() {
+    ///         break;
+    ///     }
+    /// }
+    /// ```
+    pub fn wait_spin_until<'a, T>(
+        &self,
+        guard: Guard<'a, T>,
+        deadline: web_time::Instant,
+    ) -> (Guard<'a, T>, WaitTimeoutResult) {
+        let wake = Arc::new(AtomicBool::new(false));
+        let mutex = guard.mutex;
+        //insert into wait queue
+        self.waiting_spin_threads.with_mut(|e| e.push(wake.clone()));
+
+        // Release the mutex
+        drop(guard);
+
+        loop {
+            if wake.load(Ordering::Acquire) {
+                // Re-acquire the mutex before returning
+                return (mutex.lock_sync(), WaitTimeoutResult(false));
+            }
+            if web_time::Instant::now() >= deadline {
+                // We timed out. We need to remove ourselves from the wait list.
+                // It's possible we were notified just now, so we check one last time after locking.
+                let notified = self.waiting_spin_threads.with_mut(|threads| {
+                    // Find our wake arc and remove it
+                    if let Some(pos) = threads.iter().position(|x| Arc::ptr_eq(x, &wake)) {
+                        threads.remove(pos);
+                        false // We removed ourselves, so we were NOT notified by someone else popping us
+                    } else {
+                        true // We were not in the list, so we MUST have been notified/popped
+                    }
+                });
+
+                if notified {
+                    // We were notified, so we shouldn't return timeout.
+                    // We still need to wait for the wake flag to be set to true by the notifier
+                    // effectively behaving as a normal wait_spin completion.
+                    while !wake.load(Ordering::Acquire) {
+                        std::hint::spin_loop();
+                    }
+                    return (mutex.lock_sync(), WaitTimeoutResult(false));
+                } else {
+                    return (mutex.lock_sync(), WaitTimeoutResult(true));
+                }
+            }
+            std::hint::spin_loop();
+        }
+    }
+}
+
+/// A type indicating whether a timed wait on a condition variable returned
+/// due to a time out or not.
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct WaitTimeoutResult(bool);
+
+impl WaitTimeoutResult {
+    /// Returns `true` if the wait was known to have timed out.
+    pub fn timed_out(&self) -> bool {
+        self.0
+    }
+}
+
+impl Condvar {
     /// Blocks the current thread until this condition variable receives a notification.
     ///
     /// This method will atomically unlock the mutex specified by the guard and block
@@ -276,7 +377,11 @@ impl Condvar {
     /// Blocks the thread while the predicate returns `true`.
     ///
     /// Equivalent to manually looping on [`wait_block`] with a predicate check.
-    pub fn wait_block_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    pub fn wait_block_while<'a, T, F>(
+        &self,
+        mut guard: Guard<'a, T>,
+        mut condition: F,
+    ) -> Guard<'a, T>
     where
         F: FnMut(&mut T) -> bool,
     {
@@ -344,7 +449,11 @@ impl Condvar {
     }
 
     /// Automatically waits while the predicate is `true`, choosing the best strategy per platform.
-    pub fn wait_sync_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    pub fn wait_sync_while<'a, T, F>(
+        &self,
+        mut guard: Guard<'a, T>,
+        mut condition: F,
+    ) -> Guard<'a, T>
     where
         F: FnMut(&mut T) -> bool,
     {
@@ -434,7 +543,11 @@ impl Condvar {
     /// Asynchronously waits while the predicate remains `true`.
     ///
     /// This loops on [`wait_async`] until `condition` evaluates to `false`.
-    pub async fn wait_async_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    pub async fn wait_async_while<'a, T, F>(
+        &self,
+        mut guard: Guard<'a, T>,
+        mut condition: F,
+    ) -> Guard<'a, T>
     where
         F: FnMut(&mut T) -> bool,
     {
@@ -494,7 +607,6 @@ impl Condvar {
         if let Some(sender) = sender {
             sender.send(());
         }
-
     }
 
     /// Wakes up all blocked threads on this condition variable.
@@ -593,31 +705,36 @@ mod tests {
     #[test_executors::async_test]
     //#[cfg(not(target_arch = "wasm32"))] // HANGS on WASM
     async fn test_condvar_basic_spin() {
-
         let pair = Arc::new((Mutex::new(false), Condvar::new()));
         let pair_clone = Arc::clone(&pair);
 
         let (c, r) = continuation();
-        thread::Builder::new().name("basic_spin_write".into()).spawn(move || {
-            thread::sleep(std::time::Duration::from_millis(50));
+        thread::Builder::new()
+            .name("basic_spin_write".into())
+            .spawn(move || {
+                thread::sleep(std::time::Duration::from_millis(50));
 
-            let (mutex, condvar) = &*pair_clone;
-            let mut ready = mutex.lock_sync();
-            *ready = true;
-            drop(ready);
-            condvar.notify_one();
-            c.send(());
-        }).unwrap();
-        let (c,r2) = continuation();
-        thread::Builder::new().name("basic_spin_write".into()).spawn(move || {
-            let (mutex, condvar) = &*pair;
-            let mut ready = mutex.lock_sync();
-            while !*ready {
-                ready = condvar.wait_spin(ready);
-            }
-            assert!(*ready);
-            c.send(());
-        }).unwrap();
+                let (mutex, condvar) = &*pair_clone;
+                let mut ready = mutex.lock_sync();
+                *ready = true;
+                drop(ready);
+                condvar.notify_one();
+                c.send(());
+            })
+            .unwrap();
+        let (c, r2) = continuation();
+        thread::Builder::new()
+            .name("basic_spin_write".into())
+            .spawn(move || {
+                let (mutex, condvar) = &*pair;
+                let mut ready = mutex.lock_sync();
+                while !*ready {
+                    ready = condvar.wait_spin(ready);
+                }
+                assert!(*ready);
+                c.send(());
+            })
+            .unwrap();
         r.await;
         r2.await;
     }
@@ -804,6 +921,61 @@ mod tests {
                 }
             }
             assert_eq!(collected, vec![0, 1, 2, 3, 4]);
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_spin_until_timeout() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let (mutex, condvar) = &*pair;
+        let mut ready = mutex.lock_sync();
+        let deadline = web_time::Instant::now() + web_time::Duration::from_millis(10);
+        let result;
+        (ready, result) = condvar.wait_spin_until(ready, deadline);
+        assert!(result.timed_out());
+        assert!(!*ready);
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_spin_until_notified() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_millis(50));
+            let (mutex, condvar) = &*pair_clone;
+            let mut ready = mutex.lock_sync();
+            *ready = true;
+            drop(ready);
+            condvar.notify_one();
+            c.send(());
+        }); // removed unwrap because thread::spawn returns JoinHandle, not Result in standard lib, but wasm_thread might be different?
+        // checking wasm_thread docs or source would be good, but standard thread::spawn returns JoinHandle.
+        // Wait, standard thread::spawn panics if it fails to spawn (in some impls) or returns JoinHandle.
+        // Actually std::thread::Builder::spawn returns Result. std::thread::spawn returns JoinHandle.
+        // So unwrap is not needed for spawn, but we should ensure it didn't panic.
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_clone2;
+            let mut ready = mutex.lock_sync();
+            // Increase deadline to 5 seconds to be safe
+            let deadline = web_time::Instant::now() + web_time::Duration::from_secs(5);
+            while !*ready {
+                let result;
+                (ready, result) = condvar.wait_spin_until(ready, deadline);
+                if result.timed_out() {
+                    // Add more info to panic
+                    panic!("Should not have timed out. Ready is still false.");
+                }
+            }
+            assert!(*ready);
             c2.send(());
         });
 

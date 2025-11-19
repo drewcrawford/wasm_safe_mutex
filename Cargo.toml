@@ -14,6 +14,7 @@ rust-version = "1.85.1"
 
 [dependencies]
 continue = "0.1"
+web-time = "1.1"
 
 [dev-dependencies]
 test_executors = "0.3.5"
