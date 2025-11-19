@@ -318,6 +318,61 @@ impl Condvar {
             std::hint::spin_loop();
         }
     }
+
+    /// Waits by spinning while the predicate remains `true` or until the deadline is reached.
+    ///
+    /// This helper repeatedly evaluates `condition`, calling [`wait_spin_until`]
+    /// whenever more progress is required. Returns when either `condition` evaluates
+    /// to `false` or the deadline is reached.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(0), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut value = mutex.lock_sync();
+    ///     *value = 10;
+    ///     drop(value);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut guard = mutex.lock_sync();
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// let (guard, result) = condvar.wait_spin_until_while(guard, deadline, |v| *v < 10);
+    /// if !result.timed_out() {
+    ///     assert_eq!(*guard, 10);
+    /// }
+    /// ```
+    pub fn wait_spin_until_while<'a, T, F>(
+        &self,
+        mut guard: Guard<'a, T>,
+        deadline: Instant,
+        mut condition: F,
+    ) -> (Guard<'a, T>, WaitTimeoutResult)
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        while condition(&mut guard) {
+            let result;
+            (guard, result) = self.wait_spin_until(guard, deadline);
+            if result.timed_out() {
+                return (guard, result);
+            }
+        }
+        (guard, WaitTimeoutResult(false))
+    }
 }
 
 /// A type indicating whether a timed wait on a condition variable returned
@@ -523,6 +578,60 @@ impl Condvar {
         }
     }
 
+    /// Blocks the thread while the predicate remains `true` or until the deadline is reached.
+    ///
+    /// This loops on [`wait_block_until`] until `condition` evaluates to `false` or
+    /// the deadline is reached.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(0), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut value = mutex.lock_sync();
+    ///     *value = 10;
+    ///     drop(value);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let guard = mutex.lock_sync();
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// let (guard, result) = condvar.wait_block_until_while(guard, deadline, |v| *v < 10);
+    /// if !result.timed_out() {
+    ///     assert_eq!(*guard, 10);
+    /// }
+    /// ```
+    pub fn wait_block_until_while<'a, T, F>(
+        &self,
+        mut guard: Guard<'a, T>,
+        deadline: Instant,
+        mut condition: F,
+    ) -> (Guard<'a, T>, WaitTimeoutResult)
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        while condition(&mut guard) {
+            let result;
+            (guard, result) = self.wait_block_until(guard, deadline);
+            if result.timed_out() {
+                return (guard, result);
+            }
+        }
+        (guard, WaitTimeoutResult(false))
+    }
+
     /// Automatically chooses the right waiting strategy for your platform.
     ///
     /// This is the recommended method as it papers over all platform differences:
@@ -589,6 +698,67 @@ impl Condvar {
             } else {
                 // Fallback to spin lock if Atomics.wait is not supported
                 self.wait_spin_until(guard, deadline)
+            }
+        }
+    }
+
+    /// Automatically waits while the predicate is `true` or until the deadline is reached,
+    /// choosing the best strategy per platform.
+    ///
+    /// This is the recommended method as it papers over all platform differences:
+    /// - **Native (any thread)**: Uses efficient thread parking
+    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(0), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut value = mutex.lock_sync();
+    ///     *value = 10;
+    ///     drop(value);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let guard = mutex.lock_sync();
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// let (guard, result) = condvar.wait_until_sync_while(guard, deadline, |v| *v < 10);
+    /// if !result.timed_out() {
+    ///     assert_eq!(*guard, 10);
+    /// }
+    /// ```
+    pub fn wait_until_sync_while<'a, T, F>(
+        &self,
+        guard: Guard<'a, T>,
+        deadline: Instant,
+        condition: F,
+    ) -> (Guard<'a, T>, WaitTimeoutResult)
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.wait_block_until_while(guard, deadline, condition)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if atomics_wait_supported() {
+                self.wait_block_until_while(guard, deadline, condition)
+            } else {
+                self.wait_spin_until_while(guard, deadline, condition)
             }
         }
     }
@@ -1647,6 +1817,106 @@ mod tests {
                 assert!(!result.timed_out());
                 assert_eq!(*guard, 10);
             });
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_spin_until_while() {
+        let pair = Arc::new((Mutex::new(0), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_millis(50));
+            let (mutex, condvar) = &*pair_clone;
+            let mut value = mutex.lock_sync();
+            *value = 10;
+            drop(value);
+            condvar.notify_one();
+            c.send(());
+        });
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_clone2;
+            let guard = mutex.lock_sync();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (guard, result) = condvar.wait_spin_until_while(guard, deadline, |v| *v < 10);
+            assert!(!result.timed_out());
+            assert_eq!(*guard, 10);
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_block_until_while() {
+        let pair = Arc::new((Mutex::new(0), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(50));
+
+            let (mutex, condvar) = &*pair_clone;
+            let mut value = mutex.lock_sync();
+            *value = 10;
+            drop(value);
+            condvar.notify_one();
+            c.send(());
+        });
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_clone2;
+            let guard = mutex.lock_sync();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (guard, result) = condvar.wait_block_until_while(guard, deadline, |v| *v < 10);
+            assert!(!result.timed_out());
+            assert_eq!(*guard, 10);
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_until_sync_while() {
+        let pair = Arc::new((Mutex::new(0), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(50));
+
+            let (mutex, condvar) = &*pair_clone;
+            let mut value = mutex.lock_sync();
+            *value = 10;
+            drop(value);
+            condvar.notify_one();
+            c.send(());
+        });
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_clone2;
+            let guard = mutex.lock_sync();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (guard, result) = condvar.wait_until_sync_while(guard, deadline, |v| *v < 10);
+            assert!(!result.timed_out());
+            assert_eq!(*guard, 10);
             c2.send(());
         });
 
