@@ -10,6 +10,33 @@ use crate::{Guard, Spinlock};
 use std::thread;
 #[cfg(target_arch = "wasm32")]
 use wasm_thread as thread;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::wasm_bindgen;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(inline_js = "
+export function supportsAtomicsWait() {
+    if (typeof SharedArrayBuffer === 'undefined') return false;
+    if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
+
+    try {
+        const sab = new SharedArrayBuffer(4);
+        const ia = new Int32Array(sab);
+        const result = Atomics.wait(ia, 0, 0, 0);
+        return result === 'timed-out' || result === 'not-equal';
+    } catch (_) {
+        return false;
+    }
+}
+")]
+extern "C" {
+    fn supportsAtomicsWait() -> bool;
+}
+
+#[cfg(target_arch = "wasm32")]
+fn atomics_wait_supported() -> bool {
+    supportsAtomicsWait()
+}
 
 /// A condition variable that works across native and WebAssembly targets.
 ///
@@ -176,6 +203,21 @@ impl Condvar {
         mutex.lock_sync()
     }
 
+    /// Waits by spinning while the predicate remains `true`.
+    ///
+    /// This helper repeatedly evaluates `condition`, calling [`wait_spin`]
+    /// whenever more progress is required. The guard returned at the end
+    /// always satisfies `condition == false`.
+    pub fn wait_spin_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        while condition(&mut guard) {
+            guard = self.wait_spin(guard);
+        }
+        guard
+    }
+
     /// Blocks the current thread until this condition variable receives a notification.
     ///
     /// This method will atomically unlock the mutex specified by the guard and block
@@ -236,6 +278,19 @@ impl Condvar {
         mutex.lock_sync()
     }
 
+    /// Blocks the thread while the predicate returns `true`.
+    ///
+    /// Equivalent to manually looping on [`wait_block`] with a predicate check.
+    pub fn wait_block_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        while condition(&mut guard) {
+            guard = self.wait_block(guard);
+        }
+        guard
+    }
+
     /// Automatically chooses the right waiting strategy for your platform.
     ///
     /// This is the recommended method as it papers over all platform differences:
@@ -284,32 +339,39 @@ impl Condvar {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            use wasm_bindgen::prelude::wasm_bindgen;
-
-            #[wasm_bindgen(inline_js = "
-export function supportsAtomicsWait() {
-    if (typeof SharedArrayBuffer === 'undefined') return false;
-    if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
-
-    try {
-        const sab = new SharedArrayBuffer(4);
-        const ia = new Int32Array(sab);
-        const result = Atomics.wait(ia, 0, 0, 0);
-        return result === 'timed-out' || result === 'not-equal';
-    } catch (_) {
-        return false;
-    }
-}
-")]
-            extern "C" {
-                fn supportsAtomicsWait() -> bool;
-            }
-
-            if supportsAtomicsWait() {
+            if atomics_wait_supported() {
                 self.wait_block(guard)
             } else {
                 // Fallback to spin lock if Atomics.wait is not supported
                 self.wait_spin(guard)
+            }
+        }
+    }
+
+    /// Automatically waits while the predicate is `true`, choosing the best strategy per platform.
+    pub fn wait_sync_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            while condition(&mut guard) {
+                guard = self.wait_block(guard);
+            }
+            guard
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if atomics_wait_supported() {
+                while condition(&mut guard) {
+                    guard = self.wait_block(guard);
+                }
+                guard
+            } else {
+                while condition(&mut guard) {
+                    guard = self.wait_spin(guard);
+                }
+                guard
             }
         }
     }
@@ -372,6 +434,19 @@ export function supportsAtomicsWait() {
 
         // Re-acquire the mutex
         mutex.lock_async().await
+    }
+
+    /// Asynchronously waits while the predicate remains `true`.
+    ///
+    /// This loops on [`wait_async`] until `condition` evaluates to `false`.
+    pub async fn wait_async_while<'a, T, F>(&self, mut guard: Guard<'a, T>, mut condition: F) -> Guard<'a, T>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        while condition(&mut guard) {
+            guard = self.wait_async(guard).await;
+        }
+        guard
     }
 
     /// Wakes up one blocked thread on this condition variable.
@@ -724,6 +799,68 @@ mod tests {
 
         r.await;
         r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_sync_while() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(10));
+
+            let (mutex, condvar) = &*pair_clone;
+            let mut ready = mutex.lock_sync();
+            *ready = true;
+            drop(ready);
+            condvar.notify_one();
+            c.send(());
+        });
+
+        let pair_waiter = Arc::clone(&pair);
+        let (cw, rw) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_waiter;
+            let guard = mutex.lock_sync();
+            let guard = condvar.wait_sync_while(guard, |ready| !*ready);
+            assert!(*guard);
+            drop(guard);
+            cw.send(());
+        });
+
+        r.await;
+        rw.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_async_while() {
+        let pair = Arc::new((Mutex::new(0), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(10));
+
+            test_executors::spin_on(async move {
+                let (mutex, condvar) = &*pair_clone;
+                let mut value = mutex.lock_async().await;
+                *value = 1;
+                drop(value);
+                condvar.notify_one();
+                c.send(());
+            });
+        });
+
+        let (mutex, condvar) = &*pair;
+        let guard = mutex.lock_async().await;
+        let guard = condvar.wait_async_while(guard, |value| *value == 0).await;
+        assert_eq!(*guard, 1);
+        drop(guard);
+
+        r.await;
     }
 
     #[test_executors::async_test]
