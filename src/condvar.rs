@@ -6,7 +6,7 @@
 
 use crate::{Guard, Spinlock};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -45,6 +45,16 @@ extern "C" {
 fn atomics_wait_supported() -> bool {
     supportsAtomicsWait()
 }
+
+/// A wrapper for async waiters that includes a unique ID for identification
+#[derive(Debug)]
+struct AsyncWaiter {
+    id: u64,
+    sender: r#continue::Sender<()>,
+}
+
+/// Counter for generating unique IDs for async waiters
+static ASYNC_WAITER_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// A condition variable that works across native and WebAssembly targets.
 ///
@@ -123,7 +133,7 @@ fn atomics_wait_supported() -> bool {
 #[derive(Debug)]
 pub struct Condvar {
     waiting_sync_threads: Spinlock<Vec<thread::Thread>>,
-    waiting_async_threads: Spinlock<Vec<r#continue::Sender<()>>>,
+    waiting_async_threads: Spinlock<Vec<AsyncWaiter>>,
     waiting_spin_threads: Spinlock<Vec<Arc<AtomicBool>>>,
 }
 
@@ -716,9 +726,10 @@ impl Condvar {
         let mutex = guard.mutex;
 
         // Create a channel to receive the notification
-        let receiver = self.waiting_async_threads.with_mut(|senders| {
+        let receiver = self.waiting_async_threads.with_mut(|waiters| {
             let (sender, receiver) = r#continue::continuation();
-            senders.push(sender);
+            let id = ASYNC_WAITER_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+            waiters.push(AsyncWaiter { id, sender });
             receiver
         });
 
@@ -747,6 +758,169 @@ impl Condvar {
             guard = self.wait_async(guard).await;
         }
         guard
+    }
+
+    /// Asynchronously waits until this condition variable receives a notification or the deadline is reached.
+    ///
+    /// This method will atomically unlock the mutex specified by the guard and
+    /// await a notification or timeout. When a notification is received or the timeout expires,
+    /// the mutex will be re-acquired before the future resolves.
+    ///
+    /// This method is non-blocking and works everywhere, including WASM main thread.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # test_executors::spin_on(async {
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// // Spawn a thread that will notify us
+    /// thread::spawn(move || {
+    ///     # #[cfg(not(target_arch = "wasm32"))]
+    ///     std::thread::sleep(std::time::Duration::from_millis(10));
+    ///     test_executors::spin_on(async {
+    ///         let (mutex, condvar) = &*pair_clone;
+    ///         let mut ready = mutex.lock_async().await;
+    ///         *ready = true;
+    ///         drop(ready);
+    ///         condvar.notify_one();
+    ///     });
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_async().await;
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// while !*ready {
+    ///     let result;
+    ///     (ready, result) = condvar.wait_until_async(ready, deadline).await;
+    ///     if result.timed_out() {
+    ///         break;
+    ///     }
+    /// }
+    /// assert!(*ready);
+    /// # });
+    /// ```
+    pub async fn wait_until_async<'a, T>(
+        &self,
+        guard: Guard<'a, T>,
+        deadline: Instant,
+    ) -> (Guard<'a, T>, WaitTimeoutResult) {
+        let mutex = guard.mutex;
+
+        // Create a unique ID for this waiter
+        let waiter_id = ASYNC_WAITER_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+        // Create two channels - one for normal notification, one for timeout
+        let (notify_sender, notify_receiver) = r#continue::continuation();
+        let (timeout_sender, timeout_receiver) = r#continue::continuation();
+
+        // Add to waiting list
+        self.waiting_async_threads.with_mut(|waiters| {
+            waiters.push(AsyncWaiter { id: waiter_id, sender: notify_sender });
+        });
+
+        // Spawn a thread to handle the timeout
+        thread::spawn(move || {
+            let now = Instant::now();
+            if deadline > now {
+                let duration = deadline - now;
+                thread::sleep(duration);
+            }
+            // Send timeout signal
+            timeout_sender.send(());
+        });
+
+        // Release the mutex
+        drop(guard);
+
+        // Race between notification and timeout
+        // We'll poll both futures and see which completes first
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::task::{Context, Poll};
+
+        struct Race<F1, F2> {
+            notify: Option<F1>,
+            timeout: Option<F2>,
+        }
+
+        impl<F1: Future + Unpin, F2: Future + Unpin> Future for Race<F1, F2> {
+            type Output = bool; // true if timed out
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                // Poll notification future
+                if let Some(ref mut notify) = self.notify {
+                    if Pin::new(notify).poll(cx).is_ready() {
+                        self.notify = None;
+                        return Poll::Ready(false); // Got notification
+                    }
+                }
+
+                // Poll timeout future
+                if let Some(ref mut timeout) = self.timeout {
+                    if Pin::new(timeout).poll(cx).is_ready() {
+                        self.timeout = None;
+                        return Poll::Ready(true); // Timed out
+                    }
+                }
+
+                Poll::Pending
+            }
+        }
+
+        let timed_out = Race {
+            notify: Some(notify_receiver),
+            timeout: Some(timeout_receiver),
+        }
+        .await;
+
+        // If we timed out, remove ourselves from the list
+        if timed_out {
+            self.waiting_async_threads.with_mut(|waiters| {
+                if let Some(pos) = waiters.iter().position(|w| w.id == waiter_id) {
+                    let waiter = waiters.remove(pos);
+                    // Send the notification to complete the receiver
+                    waiter.sender.send(());
+                }
+            });
+        }
+
+        // Re-acquire the mutex
+        let guard = mutex.lock_async().await;
+
+        // Return the result
+        (guard, WaitTimeoutResult(timed_out))
+    }
+
+    /// Asynchronously waits while the predicate remains `true` or until the deadline is reached.
+    ///
+    /// This loops on [`wait_until_async`] until `condition` evaluates to `false` or timeout occurs.
+    pub async fn wait_until_async_while<'a, T, F>(
+        &self,
+        mut guard: Guard<'a, T>,
+        deadline: Instant,
+        mut condition: F,
+    ) -> (Guard<'a, T>, WaitTimeoutResult)
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        while condition(&mut guard) {
+            let result;
+            (guard, result) = self.wait_until_async(guard, deadline).await;
+            if result.timed_out() {
+                return (guard, result);
+            }
+        }
+        (guard, WaitTimeoutResult(false))
     }
 
     /// Wakes up one blocked thread on this condition variable.
@@ -795,9 +969,9 @@ impl Condvar {
         }
 
         // If no sync threads, wake one async task
-        let sender = self.waiting_async_threads.with_mut(|senders| senders.pop());
-        if let Some(sender) = sender {
-            sender.send(());
+        let waiter = self.waiting_async_threads.with_mut(|waiters| waiters.pop());
+        if let Some(waiter) = waiter {
+            waiter.sender.send(());
         }
     }
 
@@ -850,9 +1024,9 @@ impl Condvar {
         }
 
         // Wake all async tasks
-        let senders = self.waiting_async_threads.with_mut(std::mem::take);
-        for sender in senders {
-            sender.send(());
+        let waiters = self.waiting_async_threads.with_mut(std::mem::take);
+        for waiter in waiters {
+            waiter.sender.send(());
         }
     }
 }
@@ -1377,6 +1551,102 @@ mod tests {
                 }
             }
             assert!(*ready);
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_until_async_timeout() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let (mutex, condvar) = &*pair;
+
+        let mut ready = mutex.lock_async().await;
+        let deadline = Instant::now() + Duration::from_millis(50);
+        let result;
+        (ready, result) = condvar.wait_until_async(ready, deadline).await;
+        assert!(result.timed_out());
+        assert!(!*ready);
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_until_async_notified() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(50));
+
+            test_executors::spin_on(async {
+                let (mutex, condvar) = &*pair_clone;
+                let mut ready = mutex.lock_async().await;
+                *ready = true;
+                drop(ready);
+                condvar.notify_one();
+            });
+            c.send(());
+        });
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            test_executors::spin_on(async {
+                let (mutex, condvar) = &*pair_clone2;
+                let mut ready = mutex.lock_async().await;
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !*ready {
+                    let result;
+                    (ready, result) = condvar.wait_until_async(ready, deadline).await;
+                    if result.timed_out() {
+                        panic!("Should not have timed out. Ready is still false.");
+                    }
+                }
+                assert!(*ready);
+            });
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_until_async_while() {
+        let pair = Arc::new((Mutex::new(0), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(50));
+
+            test_executors::spin_on(async {
+                let (mutex, condvar) = &*pair_clone;
+                let mut value = mutex.lock_async().await;
+                *value = 10;
+                drop(value);
+                condvar.notify_one();
+            });
+            c.send(());
+        });
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            test_executors::spin_on(async {
+                let (mutex, condvar) = &*pair_clone2;
+                let guard = mutex.lock_async().await;
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let (guard, result) = condvar
+                    .wait_until_async_while(guard, deadline, |value| *value < 10)
+                    .await;
+                assert!(!result.timed_out());
+                assert_eq!(*guard, 10);
+            });
             c2.send(());
         });
 
