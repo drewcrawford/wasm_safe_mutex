@@ -9,10 +9,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[cfg(target_arch = "wasm32")]
-use web_time::{Duration, Instant};
+use web_time::Instant;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
@@ -400,6 +400,189 @@ impl Condvar {
         guard
     }
 
+    /// Blocks the current thread until this condition variable receives a notification or the deadline is reached.
+    ///
+    /// This method will atomically unlock the mutex specified by the guard and block
+    /// the current thread. When a notification is received or the timeout expires,
+    /// the thread will wake up and re-acquire the lock before returning.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native (main or worker)**: Uses thread parking with timeout
+    /// - **WASM worker threads**: Blocks using `Atomics.wait` with timeout when available
+    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method may return spuriously (without a notification). Always use it
+    /// in a loop that checks the condition.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut ready = mutex.lock_sync();
+    ///     *ready = true;
+    ///     drop(ready);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_sync();
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// while !*ready {
+    ///     let result;
+    ///     (ready, result) = condvar.wait_block_until(ready, deadline);
+    ///     if result.timed_out() {
+    ///         break;
+    ///     }
+    /// }
+    /// assert!(*ready);
+    /// ```
+    pub fn wait_block_until<'a, T>(
+        &self,
+        guard: Guard<'a, T>,
+        deadline: Instant,
+    ) -> (Guard<'a, T>, WaitTimeoutResult) {
+        let mutex = guard.mutex;
+
+        // Register this thread as waiting before releasing the lock
+        self.waiting_sync_threads.with_mut(|threads| {
+            threads.push(thread::current());
+        });
+
+        // Explicitly drop the guard to release the mutex
+        drop(guard);
+
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                // We timed out. We need to remove ourselves from the wait list.
+                // It's possible we were notified just now, so we check one last time after locking.
+                let notified = self.waiting_sync_threads.with_mut(|threads| {
+                    // Find our thread and remove it
+                    let current = thread::current();
+                    if let Some(pos) = threads.iter().position(|x| x.id() == current.id()) {
+                        threads.remove(pos);
+                        false // We removed ourselves, so we were NOT notified by someone else popping us
+                    } else {
+                        true // We were not in the list, so we MUST have been notified/popped
+                    }
+                });
+
+                if notified {
+                    // We were notified, so we shouldn't return timeout.
+                    // We just need to re-acquire the lock.
+                    return (mutex.lock_sync(), WaitTimeoutResult(false));
+                } else {
+                    return (mutex.lock_sync(), WaitTimeoutResult(true));
+                }
+            }
+
+            let timeout = deadline - now;
+            // Park this thread until notified or timeout
+            std::thread::park_timeout(timeout);
+
+            // Check if we were notified
+            let notified = self.waiting_sync_threads.with_mut(|threads| {
+                let current = thread::current();
+                if threads.iter().any(|x| x.id() == current.id()) {
+                    // We are still in the list, so we were NOT notified (spurious wakeup or timeout)
+                    false
+                } else {
+                    // We are not in the list, so we MUST have been notified/popped
+                    true
+                }
+            });
+
+            if notified {
+                return (mutex.lock_sync(), WaitTimeoutResult(false));
+            }
+        }
+    }
+
+    /// Automatically chooses the right waiting strategy for your platform.
+    ///
+    /// This is the recommended method as it papers over all platform differences:
+    /// - **Native (any thread)**: Uses efficient thread parking
+    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    ///
+    /// You don't need to worry about "cannot block on main thread" errors -
+    /// this method handles that automatically by detecting the environment
+    /// and choosing the appropriate strategy.
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method may return spuriously (without a notification). Always use it
+    /// in a loop that checks the condition.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut ready = mutex.lock_sync();
+    ///     *ready = true;
+    ///     drop(ready);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_sync();
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// while !*ready {
+    ///     let result;
+    ///     (ready, result) = condvar.wait_until_sync(ready, deadline);
+    ///     if result.timed_out() {
+    ///         break;
+    ///     }
+    /// }
+    /// assert!(*ready);
+    /// ```
+    pub fn wait_until_sync<'a, T>(
+        &self,
+        guard: Guard<'a, T>,
+        deadline: Instant,
+    ) -> (Guard<'a, T>, WaitTimeoutResult) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.wait_block_until(guard, deadline)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if atomics_wait_supported() {
+                self.wait_block_until(guard, deadline)
+            } else {
+                // Fallback to spin lock if Atomics.wait is not supported
+                self.wait_spin_until(guard, deadline)
+            }
+        }
+    }
+
     /// Automatically chooses the right waiting strategy for your platform.
     ///
     /// This is the recommended method as it papers over all platform differences:
@@ -700,6 +883,9 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     use std::time::Duration;
+
+    #[cfg(target_arch = "wasm32")]
+    use web_time::Duration;
 
     use r#continue::continuation;
     #[cfg(not(target_arch = "wasm32"))]
@@ -1098,5 +1284,103 @@ mod tests {
 
         let (mutex, _) = &*pair;
         assert_eq!(*mutex.lock_sync(), true);
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_block_until_timeout() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_clone;
+            let mut ready = mutex.lock_sync();
+            let deadline = Instant::now() + Duration::from_millis(10);
+            let result;
+            (ready, result) = condvar.wait_block_until(ready, deadline);
+            assert!(result.timed_out());
+            assert!(!*ready);
+            c.send(());
+        });
+
+        r.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_block_until_notified() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(50));
+
+            let (mutex, condvar) = &*pair_clone;
+            let mut ready = mutex.lock_sync();
+            *ready = true;
+            drop(ready);
+            condvar.notify_one();
+            c.send(());
+        });
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_clone2;
+            let mut ready = mutex.lock_sync();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !*ready {
+                let result;
+                (ready, result) = condvar.wait_block_until(ready, deadline);
+                if result.timed_out() {
+                    panic!("Should not have timed out. Ready is still false.");
+                }
+            }
+            assert!(*ready);
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
+    }
+
+    #[test_executors::async_test]
+    async fn test_condvar_wait_until_dispatch() {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        let (c, r) = continuation();
+        thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::sleep(Duration::from_millis(50));
+
+            let (mutex, condvar) = &*pair_clone;
+            let mut ready = mutex.lock_sync();
+            *ready = true;
+            drop(ready);
+            condvar.notify_one();
+            c.send(());
+        });
+
+        let pair_clone2 = Arc::clone(&pair);
+        let (c2, r2) = continuation();
+        thread::spawn(move || {
+            let (mutex, condvar) = &*pair_clone2;
+            let mut ready = mutex.lock_sync();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !*ready {
+                let result;
+                (ready, result) = condvar.wait_until_sync(ready, deadline);
+                if result.timed_out() {
+                    panic!("Should not have timed out. Ready is still false.");
+                }
+            }
+            assert!(*ready);
+            c2.send(());
+        });
+
+        r.await;
+        r2.await;
     }
 }
