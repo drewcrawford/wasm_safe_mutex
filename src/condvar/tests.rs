@@ -245,19 +245,19 @@ async fn test_condvar_producer_consumer() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_spin_until_timeout() {
+async fn test_condvar_wait_spin_timeout() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let (mutex, condvar) = &*pair;
     let mut ready = mutex.lock_sync();
     let deadline = Instant::now() + Duration::from_millis(10);
     let result;
-    (ready, result) = condvar.wait_spin_until(ready, deadline);
+    (ready, result) = condvar.wait_spin_timeout(ready, deadline);
     assert!(result.timed_out());
     assert!(!*ready);
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_spin_until_notified() {
+async fn test_condvar_wait_spin_timeout_notified() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -285,7 +285,7 @@ async fn test_condvar_wait_spin_until_notified() {
         let deadline = Instant::now() + Duration::from_secs(5);
         while !*ready {
             let result;
-            (ready, result) = condvar.wait_spin_until(ready, deadline);
+            (ready, result) = condvar.wait_spin_timeout(ready, deadline);
             if result.timed_out() {
                 // Add more info to panic
                 panic!("Should not have timed out. Ready is still false.");
@@ -408,7 +408,7 @@ async fn test_condvar_notify_one_only_wakes_one() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_block_until_timeout() {
+async fn test_condvar_wait_block_timeout() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -418,7 +418,7 @@ async fn test_condvar_wait_block_until_timeout() {
         let mut ready = mutex.lock_sync();
         let deadline = Instant::now() + Duration::from_millis(10);
         let result;
-        (ready, result) = condvar.wait_block_until(ready, deadline);
+        (ready, result) = condvar.wait_block_timeout(ready, deadline);
         assert!(result.timed_out());
         assert!(!*ready);
         c.send(());
@@ -428,7 +428,7 @@ async fn test_condvar_wait_block_until_timeout() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_block_until_notified() {
+async fn test_condvar_wait_block_timeout_notified() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -453,7 +453,7 @@ async fn test_condvar_wait_block_until_notified() {
         let deadline = Instant::now() + Duration::from_secs(5);
         while !*ready {
             let result;
-            (ready, result) = condvar.wait_block_until(ready, deadline);
+            (ready, result) = condvar.wait_block_timeout(ready, deadline);
             if result.timed_out() {
                 panic!("Should not have timed out. Ready is still false.");
             }
@@ -467,7 +467,7 @@ async fn test_condvar_wait_block_until_notified() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_until_dispatch() {
+async fn test_condvar_wait_timeout_dispatch() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -492,7 +492,7 @@ async fn test_condvar_wait_until_dispatch() {
         let deadline = Instant::now() + Duration::from_secs(5);
         while !*ready {
             let result;
-            (ready, result) = condvar.wait_sync_until(ready, deadline);
+            (ready, result) = condvar.wait_sync_timeout(ready, deadline);
             if result.timed_out() {
                 panic!("Should not have timed out. Ready is still false.");
             }
@@ -506,20 +506,20 @@ async fn test_condvar_wait_until_dispatch() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_async_until_timeout() {
+async fn test_condvar_wait_async_timeout() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let (mutex, condvar) = &*pair;
 
     let mut ready = mutex.lock_async().await;
     let deadline = Instant::now() + Duration::from_millis(50);
     let result;
-    (ready, result) = condvar.wait_async_until(ready, deadline).await;
+    (ready, result) = condvar.wait_async_timeout(ready, deadline).await;
     assert!(result.timed_out());
     assert!(!*ready);
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_async_until_notified() {
+async fn test_condvar_wait_async_timeout_notified() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -547,7 +547,7 @@ async fn test_condvar_wait_async_until_notified() {
             let deadline = Instant::now() + Duration::from_secs(5);
             while !*ready {
                 let result;
-                (ready, result) = condvar.wait_async_until(ready, deadline).await;
+                (ready, result) = condvar.wait_async_timeout(ready, deadline).await;
                 if result.timed_out() {
                     panic!("Should not have timed out. Ready is still false.");
                 }
@@ -562,7 +562,7 @@ async fn test_condvar_wait_async_until_notified() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_async_until_while() {
+async fn test_condvar_wait_async_timeout_while() {
     let pair = Arc::new((Mutex::new(0), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -589,7 +589,7 @@ async fn test_condvar_wait_async_until_while() {
             let guard = mutex.lock_async().await;
             let deadline = Instant::now() + Duration::from_secs(5);
             let (guard, result) = condvar
-                .wait_async_until_while(guard, deadline, |value| *value < 10)
+                .wait_async_timeout_while(guard, deadline, |value| *value < 10)
                 .await;
             assert!(!result.timed_out());
             assert_eq!(*guard, 10);
@@ -602,7 +602,7 @@ async fn test_condvar_wait_async_until_while() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_spin_until_while() {
+async fn test_condvar_wait_spin_timeout_while() {
     let pair = Arc::new((Mutex::new(0), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -623,7 +623,7 @@ async fn test_condvar_wait_spin_until_while() {
         let (mutex, condvar) = &*pair_clone2;
         let guard = mutex.lock_sync();
         let deadline = Instant::now() + Duration::from_secs(5);
-        let (guard, result) = condvar.wait_spin_until_while(guard, deadline, |v| *v < 10);
+        let (guard, result) = condvar.wait_spin_timeout_while(guard, deadline, |v| *v < 10);
         assert!(!result.timed_out());
         assert_eq!(*guard, 10);
         c2.send(());
@@ -634,7 +634,7 @@ async fn test_condvar_wait_spin_until_while() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_block_until_while() {
+async fn test_condvar_wait_block_timeout_while() {
     let pair = Arc::new((Mutex::new(0), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -657,7 +657,7 @@ async fn test_condvar_wait_block_until_while() {
         let (mutex, condvar) = &*pair_clone2;
         let guard = mutex.lock_sync();
         let deadline = Instant::now() + Duration::from_secs(5);
-        let (guard, result) = condvar.wait_block_until_while(guard, deadline, |v| *v < 10);
+        let (guard, result) = condvar.wait_block_timeout_while(guard, deadline, |v| *v < 10);
         assert!(!result.timed_out());
         assert_eq!(*guard, 10);
         c2.send(());
@@ -668,7 +668,7 @@ async fn test_condvar_wait_block_until_while() {
 }
 
 #[test_executors::async_test]
-async fn test_condvar_wait_sync_until_while() {
+async fn test_condvar_wait_sync_timeout_while() {
     let pair = Arc::new((Mutex::new(0), Condvar::new()));
     let pair_clone = Arc::clone(&pair);
 
@@ -691,7 +691,7 @@ async fn test_condvar_wait_sync_until_while() {
         let (mutex, condvar) = &*pair_clone2;
         let guard = mutex.lock_sync();
         let deadline = Instant::now() + Duration::from_secs(5);
-        let (guard, result) = condvar.wait_sync_until_while(guard, deadline, |v| *v < 10);
+        let (guard, result) = condvar.wait_sync_timeout_while(guard, deadline, |v| *v < 10);
         assert!(!result.timed_out());
         assert_eq!(*guard, 10);
         c2.send(());
