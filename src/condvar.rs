@@ -42,7 +42,7 @@ extern "C" {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn atomics_wait_supported() -> bool {
+pub(crate) fn atomics_wait_supported() -> bool {
     supportsAtomicsWait()
 }
 

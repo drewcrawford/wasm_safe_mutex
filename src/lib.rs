@@ -128,7 +128,12 @@ use std::sync::atomic::AtomicBool;
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
+#[cfg(target_arch = "wasm32")]
 use wasm_thread as thread;
+
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -476,6 +481,61 @@ impl<T> Mutex<T> {
         }
     }
 
+    /// Acquires the lock by blocking with a timeout.
+    ///
+    /// This method behaves like [`lock_block`](Self::lock_block), but will return `None`
+    /// if the lock cannot be acquired before the specified deadline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::Mutex;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    ///
+    /// let mutex = Mutex::new(0);
+    /// let deadline = Instant::now() + Duration::from_millis(100);
+    ///
+    /// if let Some(mut guard) = mutex.lock_block_timeout(deadline) {
+    ///     *guard = 42;
+    /// } else {
+    ///     println!("Could not acquire lock in time");
+    /// }
+    /// ```
+    pub fn lock_block_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                // Try one last time
+                if let Ok(guard) = self.try_lock() {
+                    return Some(guard);
+                }
+                return None;
+            }
+
+            let r = self
+                .waiting_sync_threads
+                .with_mut(|threads| match self.try_lock() {
+                    Ok(guard) => Ok(guard),
+                    Err(_) => {
+                        let handle = thread::current();
+                        threads.push(handle);
+                        Err(NotAvailable)
+                    }
+                });
+
+            match r {
+                Ok(guard) => return Some(guard),
+                Err(NotAvailable) => {
+                    let remaining = deadline - Instant::now();
+                    std::thread::park_timeout(remaining);
+                }
+            }
+        }
+    }
+
     /// Asynchronously acquires the lock.
     ///
     /// This method returns a future that resolves to a guard when the lock
@@ -546,6 +606,119 @@ impl<T> Mutex<T> {
                 Err(receiver) => {
                     // Wait for the signal that the lock is available
                     receiver.await;
+                }
+            }
+        }
+    }
+
+    /// Asynchronously acquires the lock with a timeout.
+    ///
+    /// This method behaves like [`lock_async`](Self::lock_async), but will return `None`
+    /// if the lock cannot be acquired before the specified deadline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # test_executors::spin_on(async {
+    /// use wasm_safe_mutex::Mutex;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    ///
+    /// let mutex = Mutex::new(0);
+    /// let deadline = Instant::now() + Duration::from_millis(100);
+    ///
+    /// if let Some(mut guard) = mutex.lock_async_timeout(deadline).await {
+    ///     *guard = 42;
+    /// } else {
+    ///     println!("Could not acquire lock in time");
+    /// }
+    /// # });
+    /// ```
+    pub async fn lock_async_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                // Try one last time
+                if let Ok(guard) = self.try_lock() {
+                    return Some(guard);
+                }
+                return None;
+            }
+
+            let a = self.waiting_async_threads.with_mut(|senders| {
+                match self.try_lock() {
+                    Ok(guard) => Ok(guard),
+                    Err(NotAvailable) => {
+                        // Create a new channel to signal when the lock is available
+                        let (sender, receiver) = r#continue::continuation();
+                        senders.push(sender);
+                        Err(receiver)
+                    }
+                }
+            });
+
+            match a {
+                Ok(guard) => return Some(guard),
+                Err(receiver) => {
+                    // Create a channel for timeout
+                    let (timeout_sender, timeout_receiver) = r#continue::continuation();
+
+                    // Spawn a thread to handle the timeout
+                    thread::spawn(move || {
+                        let now = Instant::now();
+                        if deadline > now {
+                            let duration = deadline - now;
+                            thread::sleep(duration);
+                        }
+                        // Send timeout signal
+                        timeout_sender.send(());
+                    });
+
+                    // Race between notification and timeout
+                    struct Race<F1, F2> {
+                        notify: Option<F1>,
+                        timeout: Option<F2>,
+                    }
+
+                    impl<F1: Future + Unpin, F2: Future + Unpin> Future for Race<F1, F2> {
+                        type Output = bool; // true if timed out
+
+                        fn poll(
+                            mut self: Pin<&mut Self>,
+                            cx: &mut Context<'_>,
+                        ) -> Poll<Self::Output> {
+                            // Poll notification future
+                            if let Some(ref mut notify) = self.notify {
+                                if Pin::new(notify).poll(cx).is_ready() {
+                                    self.notify = None;
+                                    return Poll::Ready(false); // Got notification
+                                }
+                            }
+
+                            // Poll timeout future
+                            if let Some(ref mut timeout) = self.timeout {
+                                if Pin::new(timeout).poll(cx).is_ready() {
+                                    self.timeout = None;
+                                    return Poll::Ready(true); // Timed out
+                                }
+                            }
+
+                            Poll::Pending
+                        }
+                    }
+
+                    let timed_out = Race {
+                        notify: Some(receiver),
+                        timeout: Some(timeout_receiver),
+                    }
+                    .await;
+
+                    if timed_out {
+                        return None;
+                    }
+                    // If not timed out, we loop and try to lock again
                 }
             }
         }
@@ -639,6 +812,44 @@ export function supportsAtomicsWait() {
             } else {
                 // Fallback to spin lock if Atomics.wait is not supported
                 self.lock_spin()
+            }
+        }
+    }
+
+    /// Automatically chooses the right locking strategy with a timeout.
+    ///
+    /// This method behaves like [`lock_sync`](Self::lock_sync), but will return `None`
+    /// if the lock cannot be acquired before the specified deadline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::Mutex;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    ///
+    /// let mutex = Mutex::new(0);
+    /// let deadline = Instant::now() + Duration::from_millis(100);
+    ///
+    /// if let Some(mut guard) = mutex.lock_sync_timeout(deadline) {
+    ///     *guard = 42;
+    /// } else {
+    ///     println!("Could not acquire lock in time");
+    /// }
+    /// ```
+    pub fn lock_sync_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.lock_block_timeout(deadline)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if crate::condvar::atomics_wait_supported() {
+                self.lock_block_timeout(deadline)
+            } else {
+                self.lock_spin_timeout(deadline)
             }
         }
     }

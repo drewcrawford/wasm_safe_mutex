@@ -250,3 +250,133 @@ async fn test_mutex_lock_spin_timeout_fails() {
     let result = mutex.lock_spin_timeout(deadline);
     assert!(result.is_none());
 }
+
+#[test_executors::async_test]
+async fn test_mutex_lock_block_timeout() {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    let mutex = Arc::new(Mutex::new(0));
+    let mutex_clone = Arc::clone(&mutex);
+
+    // Lock it in another thread
+    let (c, r) = continuation();
+    thread::spawn(move || {
+        let _guard = mutex_clone.lock_block();
+        c.send(());
+        #[cfg(not(target_arch = "wasm32"))]
+        thread::sleep(Duration::from_secs(1));
+        #[cfg(target_arch = "wasm32")]
+        {
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_secs(1) {
+                std::hint::spin_loop();
+            }
+        }
+    });
+
+    r.await;
+
+    // Try to acquire with short timeout
+    let deadline = Instant::now() + Duration::from_millis(10);
+    let result = mutex.lock_block_timeout(deadline);
+    assert!(result.is_none());
+
+    // Wait for thread to release (approx)
+    #[cfg(not(target_arch = "wasm32"))]
+    thread::sleep(Duration::from_secs(1));
+    #[cfg(target_arch = "wasm32")]
+    {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(1) {
+            // yield to event loop? no async sleep here.
+            // just spin
+            std::hint::spin_loop();
+        }
+    }
+
+    // Should succeed now
+    let deadline = Instant::now() + Duration::from_secs(1);
+    if let Some(guard) = mutex.lock_block_timeout(deadline) {
+        assert_eq!(*guard, 0);
+    } else {
+        panic!("Failed to acquire lock after release");
+    }
+}
+
+#[test_executors::async_test]
+async fn test_mutex_lock_sync_timeout() {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    let mutex = Arc::new(Mutex::new(0));
+    let mutex_clone = Arc::clone(&mutex);
+
+    // Lock it in another thread
+    let (c, r) = continuation();
+    thread::spawn(move || {
+        let _guard = mutex_clone.lock_sync();
+        c.send(());
+        #[cfg(not(target_arch = "wasm32"))]
+        thread::sleep(Duration::from_millis(500));
+        #[cfg(target_arch = "wasm32")]
+        {
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(500) {
+                std::hint::spin_loop();
+            }
+        }
+    });
+
+    r.await;
+
+    // Try to acquire with short timeout
+    let deadline = Instant::now() + Duration::from_millis(10);
+    let result = mutex.lock_sync_timeout(deadline);
+    assert!(result.is_none());
+}
+
+#[test_executors::async_test]
+async fn test_mutex_lock_async_timeout() {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    let mutex = Arc::new(Mutex::new(0));
+
+    // Test success
+    let deadline = Instant::now() + Duration::from_secs(1);
+    if let Some(guard) = mutex.lock_async_timeout(deadline).await {
+        assert_eq!(*guard, 0);
+    } else {
+        panic!("Failed to acquire free lock");
+    }
+
+    let mutex_clone = Arc::clone(&mutex);
+    // Lock it in another task
+    let (c, r) = continuation();
+
+    // Spawn a thread to hold the lock, because async tasks on same executor might not run in parallel if we block
+    thread::spawn(move || {
+        test_executors::spin_on(async {
+            let _guard = mutex_clone.lock_async().await;
+            c.send(());
+            // Hold it
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(500) {
+                // yield?
+                r#continue::continuation::<()>().1.await; // never resolves, but yields? no, it blocks if we await it?
+                // we just want to delay.
+                // but we are in async.
+                // spin loop is fine for test
+                std::hint::spin_loop();
+            }
+        });
+    });
+
+    r.await;
+
+    // Try to acquire with short timeout
+    let deadline = Instant::now() + Duration::from_millis(10);
+    let result = mutex.lock_async_timeout(deadline).await;
+    assert!(result.is_none());
+}
