@@ -9,6 +9,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -228,7 +234,10 @@ impl Condvar {
     /// ```
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
     /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
     /// # use std::thread;
     ///
     /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
@@ -256,7 +265,7 @@ impl Condvar {
     pub fn wait_spin_until<'a, T>(
         &self,
         guard: Guard<'a, T>,
-        deadline: web_time::Instant,
+        deadline: Instant,
     ) -> (Guard<'a, T>, WaitTimeoutResult) {
         let wake = Arc::new(AtomicBool::new(false));
         let mutex = guard.mutex;
@@ -271,7 +280,7 @@ impl Condvar {
                 // Re-acquire the mutex before returning
                 return (mutex.lock_sync(), WaitTimeoutResult(false));
             }
-            if web_time::Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 // We timed out. We need to remove ourselves from the wait list.
                 // It's possible we were notified just now, so we check one last time after locking.
                 let notified = self.waiting_spin_threads.with_mut(|threads| {
@@ -933,7 +942,7 @@ mod tests {
         let pair = Arc::new((Mutex::new(false), Condvar::new()));
         let (mutex, condvar) = &*pair;
         let mut ready = mutex.lock_sync();
-        let deadline = web_time::Instant::now() + web_time::Duration::from_millis(10);
+        let deadline = Instant::now() + Duration::from_millis(10);
         let result;
         (ready, result) = condvar.wait_spin_until(ready, deadline);
         assert!(result.timed_out());
@@ -966,7 +975,7 @@ mod tests {
             let (mutex, condvar) = &*pair_clone2;
             let mut ready = mutex.lock_sync();
             // Increase deadline to 5 seconds to be safe
-            let deadline = web_time::Instant::now() + web_time::Duration::from_secs(5);
+            let deadline = Instant::now() + Duration::from_secs(5);
             while !*ready {
                 let result;
                 (ready, result) = condvar.wait_spin_until(ready, deadline);
