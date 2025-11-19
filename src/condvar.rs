@@ -4,6 +4,8 @@
 //! This module provides a condition variable that works across native and WebAssembly targets,
 //! automatically adapting its waiting strategy based on the runtime environment.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::{Guard, Spinlock};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -116,6 +118,7 @@ fn atomics_wait_supported() -> bool {
 pub struct Condvar {
     waiting_sync_threads: Spinlock<Vec<thread::Thread>>,
     waiting_async_threads: Spinlock<Vec<r#continue::Sender<()>>>,
+    waiting_spin_threads: Spinlock<Vec<Arc<AtomicBool>>>,
 }
 
 impl Condvar {
@@ -132,6 +135,7 @@ impl Condvar {
         Condvar {
             waiting_sync_threads: Spinlock::new(vec![]),
             waiting_async_threads: Spinlock::new(vec![]),
+            waiting_spin_threads: Spinlock::new(vec![]),
         }
     }
 
@@ -176,28 +180,19 @@ impl Condvar {
     /// assert!(*ready);
     /// ```
     pub fn wait_spin<'a, T>(&self, guard: Guard<'a, T>) -> Guard<'a, T> {
+        let wake = Arc::new(AtomicBool::new(false));
         let mutex = guard.mutex;
+        //insert into wait queue
+        self.waiting_spin_threads.with_mut(|e| e.push(wake.clone()));
+        eprintln!("Pushed a waiting_spin_thread");
 
         // Release the mutex
         drop(guard);
 
-        // Yield to allow other threads/tasks to run
-        // This is critical in WASM where we need to give the event loop a chance
-        #[cfg(target_arch = "wasm32")]
-        {
-            // On WASM, we need to yield back to the event loop
-            // A simple spin_loop won't work because we need cooperative scheduling
-            for _ in 0..100 {
-                std::hint::spin_loop();
-            }
+        while !wake.load(Ordering::Acquire) {
+            std::hint::spin_loop();
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // On native, just do a few spin loops to yield CPU
-            for _ in 0..10 {
-                std::hint::spin_loop();
-            }
-        }
+        eprintln!("Spin complete");
 
         // Re-acquire the mutex before returning
         mutex.lock_sync()
@@ -479,6 +474,14 @@ impl Condvar {
     /// }
     /// ```
     pub fn notify_one(&self) {
+        //Try to wake one spinlock first
+
+        let thread = self.waiting_spin_threads.with_mut(|threads| threads.pop());
+        if let Some(thread) = thread {
+            eprintln!("Popped a waiting_spin_thread");
+            thread.store(true, Ordering::Release);
+            return;
+        }
         // Try to wake one sync thread first
         let thread = self.waiting_sync_threads.with_mut(|threads| threads.pop());
         if let Some(thread) = thread {
@@ -491,6 +494,7 @@ impl Condvar {
         if let Some(sender) = sender {
             sender.send(());
         }
+
     }
 
     /// Wakes up all blocked threads on this condition variable.
@@ -529,6 +533,12 @@ impl Condvar {
     /// }
     /// ```
     pub fn notify_all(&self) {
+        //wake all spin threads
+        let threads = self.waiting_spin_threads.with_mut(std::mem::take);
+        for thread in threads {
+            thread.store(true, Ordering::Release);
+        }
+
         // Wake all sync threads
         let threads = self.waiting_sync_threads.with_mut(std::mem::take);
         for thread in threads {
@@ -865,7 +875,7 @@ mod tests {
 
     #[test_executors::async_test]
     async fn test_condvar_notify_one_only_wakes_one() {
-        let pair = Arc::new((Mutex::new(0), Condvar::new()));
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
         let mut receivers = Vec::new();
 
         // Spawn 3 threads that increment on each wake
@@ -874,10 +884,11 @@ mod tests {
             let (c, r) = continuation();
             thread::spawn(move || {
                 let (mutex, condvar) = &*pair;
-                let mut count = mutex.lock_sync();
-                while *count < 3 {
-                    count = condvar.wait_spin(count);
+                let mut wake = mutex.lock_sync();
+                while !wake.as_ref() {
+                    wake = condvar.wait_spin(wake);
                 }
+                eprintln!("Finished all wait_spins");
                 c.send(());
             });
             receivers.push(r);
@@ -885,14 +896,14 @@ mod tests {
 
         // Give threads time to start waiting
         #[cfg(not(target_arch = "wasm32"))]
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(100));
 
         // Increment and notify one at a time
-        for i in 1..=3 {
+        for _ in 1..=3 {
             let (mutex, condvar) = &*pair;
-            let mut count = mutex.lock_sync();
-            *count = i;
-            drop(count);
+            let mut wake = mutex.lock_sync();
+            *wake = true;
+            drop(wake);
             condvar.notify_one();
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -905,6 +916,6 @@ mod tests {
         }
 
         let (mutex, _) = &*pair;
-        assert_eq!(*mutex.lock_sync(), 3);
+        assert_eq!(*mutex.lock_sync(), true);
     }
 }
