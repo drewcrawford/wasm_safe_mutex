@@ -115,6 +115,7 @@
 
 pub mod condvar;
 pub mod guard;
+pub mod mpsc;
 pub mod rwlock;
 pub mod spinlock;
 #[cfg(test)]
