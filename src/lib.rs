@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! A WebAssembly-safe mutex that papers over platform-specific locking constraints.
+//! A suite of WebAssembly-safe synchronization primitives that paper over platform-specific locking constraints.
 //!
 //! ![logo](../../../art/logo.png)
 //!
@@ -16,7 +16,7 @@
 //!
 //! # The Solution
 //!
-//! This crate papers over all these platform differences by automatically adapting its
+//! This crate provides synchronization primitives that automatically adapt their
 //! locking strategy based on the runtime environment:
 //!
 //! - **Native (any thread)**: Uses efficient thread parking (`thread::park`)
@@ -25,6 +25,15 @@
 //!
 //! This means you can write code once and have it work correctly across all platforms,
 //! without worrying about whether you're on the main thread, a worker thread, native or WASM.
+//!
+//! # Primitives
+//!
+//! This crate provides the following primitives, all of which support the adaptive behavior:
+//!
+//! - **[`Mutex`]**: A mutual exclusion primitive for protecting shared data.
+//! - **[`RwLock`](rwlock::RwLock)**: A reader-writer lock that allows multiple concurrent readers or one exclusive writer.
+//! - **[`Condvar`](condvar::Condvar)**: A condition variable for blocking a thread while waiting for an event.
+//! - **[`mpsc`](mpsc)**: A multi-producer, single-consumer channel for message passing.
 //!
 //! # Features
 //!
@@ -37,7 +46,7 @@
 //!
 //! # Examples
 //!
-//! ## Basic Usage
+//! ## Mutex
 //!
 //! ```
 //! use wasm_safe_mutex::Mutex;
@@ -47,25 +56,27 @@
 //! *guard = 100;
 //! drop(guard);
 //!
-//! // Value has been updated
-//! let guard = mutex.lock_sync();
-//! assert_eq!(*guard, 100);
+//! assert_eq!(*mutex.lock_sync(), 100);
 //! ```
 //!
-//! ## Try Lock
+//! ## RwLock
 //!
 //! ```
-//! use wasm_safe_mutex::{Mutex, NotAvailable};
+//! use wasm_safe_mutex::rwlock::RwLock;
 //!
-//! let mutex = Mutex::new("data");
+//! let rwlock = RwLock::new(vec![1, 2, 3]);
 //!
-//! // First lock succeeds
-//! let guard = mutex.try_lock().unwrap();
-//! assert_eq!(*guard, "data");
+//! // Multiple readers
+//! let r1 = rwlock.lock_sync_read();
+//! let r2 = rwlock.lock_sync_read();
+//! assert_eq!(r1.len(), 3);
+//! assert_eq!(r2.len(), 3);
+//! drop(r1);
+//! drop(r2);
 //!
-//! // Second lock fails while first is held
-//! let result = mutex.try_lock();
-//! assert!(matches!(result, Err(NotAvailable)));
+//! // Exclusive writer
+//! let mut w = rwlock.lock_sync_write();
+//! w.push(4);
 //! ```
 //!
 //! ## Async Usage
@@ -74,43 +85,12 @@
 //! # test_executors::spin_on(async {
 //! use wasm_safe_mutex::Mutex;
 //!
-//! let mutex = Mutex::new(vec![1, 2, 3]);
+//! let mutex = Mutex::new(0);
 //!
-//! // Async lock doesn't block the executor
+//! // Async lock works everywhere, including WASM main thread
 //! let mut guard = mutex.lock_async().await;
-//! guard.push(4);
-//! drop(guard);
-//!
-//! // Using the convenience method
-//! let sum = mutex.with_async(|data| data.iter().sum::<i32>()).await;
-//! assert_eq!(sum, 10);
+//! *guard += 1;
 //! # });
-//! ```
-//!
-//! ## Thread-Safe Sharing
-//!
-//! ```
-//! use wasm_safe_mutex::Mutex;
-//! use std::sync::Arc;
-//! # use std::thread;
-//!
-//! let mutex = Arc::new(Mutex::new(0));
-//! let handles: Vec<_> = (0..4)
-//!     .map(|_| {
-//!         let mutex = Arc::clone(&mutex);
-//!         thread::spawn(move || {
-//!             for _ in 0..25 {
-//!                 mutex.with_mut_sync(|value| *value += 1);
-//!             }
-//!         })
-//!     })
-//!     .collect();
-//!
-//! for handle in handles {
-//!     handle.join().unwrap();
-//! }
-//!
-//! assert_eq!(*mutex.lock_sync(), 100);
 //! ```
 
 pub mod condvar;

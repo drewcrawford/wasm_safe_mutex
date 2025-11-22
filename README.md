@@ -2,7 +2,7 @@
 
 ![logo](art/logo.png)
 
-A WebAssembly-safe mutex that papers over platform-specific locking constraints.
+A suite of WebAssembly-safe synchronization primitives that paper over platform-specific locking constraints.
 
 ## The Core Problem
 
@@ -15,13 +15,22 @@ However, blocking locks ARE allowed in:
 
 ## The Solution
 
-This crate papers over all these platform differences by automatically adapting its locking strategy based on the runtime environment:
+This crate provides synchronization primitives that automatically adapt their locking strategy based on the runtime environment:
 
 - **Native (any thread)**: Uses efficient thread parking (`thread::park`)
 - **WASM worker threads**: Uses `Atomics.wait` when available
 - **WASM main thread**: Falls back to spinning (non-blocking busy-wait)
 
 This means you can write code once and have it work correctly across all platforms, without worrying about whether you're on the main thread, a worker thread, native or WASM.
+
+## Primitives
+
+This crate provides the following primitives, all of which support the adaptive behavior:
+
+- **`Mutex`**: A mutual exclusion primitive for protecting shared data.
+- **`RwLock`**: A reader-writer lock that allows multiple concurrent readers or one exclusive writer.
+- **`Condvar`**: A condition variable for blocking a thread while waiting for an event.
+- **`mpsc`**: A multi-producer, single-consumer channel for message passing.
 
 ## Features
 
@@ -43,7 +52,7 @@ wasm_safe_mutex = "0.1.0"
 
 ## Examples
 
-### Basic Usage
+### Mutex
 
 ```rust
 use wasm_safe_mutex::Mutex;
@@ -53,25 +62,27 @@ let mut guard = mutex.lock_sync();
 *guard = 100;
 drop(guard);
 
-// Value has been updated
-let guard = mutex.lock_sync();
-assert_eq!(*guard, 100);
+assert_eq!(*mutex.lock_sync(), 100);
 ```
 
-### Try Lock
+### RwLock
 
 ```rust
-use wasm_safe_mutex::{Mutex, NotAvailable};
+use wasm_safe_mutex::rwlock::RwLock;
 
-let mutex = Mutex::new("data");
+let rwlock = RwLock::new(vec![1, 2, 3]);
 
-// First lock succeeds
-let guard = mutex.try_lock().unwrap();
-assert_eq!(*guard, "data");
+// Multiple readers
+let r1 = rwlock.lock_sync_read();
+let r2 = rwlock.lock_sync_read();
+assert_eq!(r1.len(), 3);
+assert_eq!(r2.len(), 3);
+drop(r1);
+drop(r2);
 
-// Second lock fails while first is held
-let result = mutex.try_lock();
-assert!(matches!(result, Err(NotAvailable)));
+// Exclusive writer
+let mut w = rwlock.lock_sync_write();
+w.push(4);
 ```
 
 ### Async Usage
@@ -79,66 +90,16 @@ assert!(matches!(result, Err(NotAvailable)));
 ```rust
 use wasm_safe_mutex::Mutex;
 
-let mutex = Mutex::new(vec![1, 2, 3]);
+let mutex = Mutex::new(0);
 
-// Async lock doesn't block the executor
+// Async lock works everywhere, including WASM main thread
 let mut guard = mutex.lock_async().await;
-guard.push(4);
-drop(guard);
-
-// Using the convenience method
-let sum = mutex.with_async(|data| data.iter().sum::<i32>()).await;
-assert_eq!(sum, 10);
+*guard += 1;
 ```
-
-### Thread-Safe Sharing
-
-```rust
-use wasm_safe_mutex::Mutex;
-use std::sync::Arc;
-use std::thread;
-
-let mutex = Arc::new(Mutex::new(0));
-let handles: Vec<_> = (0..4)
-    .map(|_| {
-        let mutex = Arc::clone(&mutex);
-        thread::spawn(move || {
-            for _ in 0..25 {
-                mutex.with_mut_sync(|value| *value += 1);
-            }
-        })
-    })
-    .collect();
-
-for handle in handles {
-    handle.join().unwrap();
-}
-
-assert_eq!(*mutex.lock_sync(), 100);
-```
-
-## API Overview
-
-The `Mutex<T>` type provides multiple locking strategies:
-
-### Locking Methods
-
-- **`try_lock()`**: Non-blocking attempt to acquire the lock
-- **`lock_spin()`**: Spin-wait until the lock is acquired
-- **`lock_block()`**: Blocks on native/WASM workers, spins on WASM main thread
-- **`lock_sync()`**: Automatically chooses the right strategy for your platform (recommended)
-- **`lock_async()`**: Always non-blocking, works everywhere including WASM main thread
-
-### Convenience Methods
-
-- **`with_sync()`**: Execute a read-only closure with the lock
-- **`with_mut_sync()`**: Execute a mutable closure with the lock
-- **`with_async()`**: Execute a read-only closure with the lock asynchronously
-- **`with_mut_async()`**: Execute a mutable closure with the lock asynchronously
 
 ## Platform Behavior
 
-The mutex transparently handles platform differences:
+The primitives transparently handle platform differences:
 
 - **Native (main or worker thread)**: Full blocking with thread parking
 - **WASM worker threads**: Blocks using `Atomics.wait`
