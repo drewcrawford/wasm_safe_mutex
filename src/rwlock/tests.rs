@@ -88,7 +88,7 @@ async fn test_async() {
     let lock = mutex.lock_async_read().await;
     assert_eq!(lock.deref(), &0);
     drop(lock);
-    let lock = mutex.lock_async_read_write().await;
+    let lock = mutex.lock_async_write().await;
     assert_eq!(lock.deref(), &0);
     drop(lock);
 }

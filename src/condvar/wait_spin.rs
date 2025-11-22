@@ -1,5 +1,5 @@
-use super::{Condvar, WaitTimeoutResult};
 use super::Instant;
+use super::{Condvar, WaitTimeoutResult};
 use crate::Guard;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,7 +50,6 @@ impl Condvar {
         let mutex = guard.mutex;
         //insert into wait queue
         self.waiting_spin_threads.with_mut(|e| e.push(wake.clone()));
-        eprintln!("Pushed a waiting_spin_thread");
 
         // Release the mutex
         drop(guard);
@@ -58,7 +57,6 @@ impl Condvar {
         while !wake.load(Ordering::Acquire) {
             std::hint::spin_loop();
         }
-        eprintln!("Spin complete");
 
         // Re-acquire the mutex before returning
         mutex.lock_sync()
@@ -66,9 +64,50 @@ impl Condvar {
 
     /// Waits by spinning while the predicate remains `true`.
     ///
-    /// This helper repeatedly evaluates `condition`, calling [`wait_spin`]
-    /// whenever more progress is required. The guard returned at the end
-    /// always satisfies `condition == false`.
+    /// This method will atomically unlock the mutex specified by the guard and
+    /// spin in a tight loop as long as the `condition` closure returns `true`.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **All Platforms**: Uses a busy loop (spinning) to wait. This consumes CPU
+    ///   cycles but works in all environments, including WASM main thread.
+    ///
+    /// # Predicate
+    ///
+    /// The `condition` closure is called:
+    /// 1. Before waiting (if it returns `false`, the method returns immediately)
+    /// 2. After each notification (to check if we should keep waiting)
+    /// 3. After spurious wakeups (to ensure we don't return prematurely)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method automatically handles spurious wakeups by re-checking the condition.
+    /// You do not need to loop around this call.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut ready = mutex.lock_sync();
+    ///     *ready = true;
+    ///     drop(ready);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_sync();
+    /// // Wait until ready becomes true
+    /// ready = condvar.wait_spin_while(ready, |r| !*r);
+    /// assert!(*ready);
+    /// ```
     pub fn wait_spin_while<'a, T, F>(
         &self,
         mut guard: Guard<'a, T>,
@@ -171,9 +210,25 @@ impl Condvar {
 
     /// Waits by spinning while the predicate remains `true` with a deadline.
     ///
-    /// This helper repeatedly evaluates `condition`, calling [`wait_spin_timeout`]
-    /// whenever more progress is required. Returns when either `condition` evaluates
-    /// to `false` or the deadline is reached.
+    /// This method will atomically unlock the mutex specified by the guard and
+    /// spin in a tight loop as long as the `condition` closure returns `true`.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **All Platforms**: Uses a busy loop (spinning) to wait. This consumes CPU
+    ///   cycles but works in all environments, including WASM main thread.
+    ///
+    /// # Predicate
+    ///
+    /// The `condition` closure is called:
+    /// 1. Before waiting (if it returns `false`, the method returns immediately)
+    /// 2. After each notification (to check if we should keep waiting)
+    /// 3. After spurious wakeups (to ensure we don't return prematurely)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method automatically handles spurious wakeups by re-checking the condition.
+    /// You do not need to loop around this call.
     ///
     /// # Examples
     ///

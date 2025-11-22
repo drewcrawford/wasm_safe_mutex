@@ -1,6 +1,6 @@
-use super::{Condvar, WaitTimeoutResult};
 use super::Instant;
 use super::thread;
+use super::{Condvar, WaitTimeoutResult};
 use crate::Guard;
 
 impl Condvar {
@@ -66,7 +66,51 @@ impl Condvar {
 
     /// Blocks the thread while the predicate returns `true`.
     ///
-    /// Equivalent to manually looping on [`wait_block`] with a predicate check.
+    /// This method will atomically unlock the mutex specified by the guard and block
+    /// the current thread as long as the `condition` closure returns `true`.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native (main or worker)**: Uses thread parking for efficient blocking
+    /// - **WASM worker threads**: Blocks using `Atomics.wait` when available
+    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    ///
+    /// # Predicate
+    ///
+    /// The `condition` closure is called:
+    /// 1. Before waiting (if it returns `false`, the method returns immediately)
+    /// 2. After each notification (to check if we should keep waiting)
+    /// 3. After spurious wakeups (to ensure we don't return prematurely)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method automatically handles spurious wakeups by re-checking the condition.
+    /// You do not need to loop around this call.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut ready = mutex.lock_sync();
+    ///     *ready = true;
+    ///     drop(ready);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_sync();
+    /// // Wait until ready becomes true
+    /// ready = condvar.wait_block_while(ready, |r| !*r);
+    /// assert!(*ready);
+    /// ```
     pub fn wait_block_while<'a, T, F>(
         &self,
         mut guard: Guard<'a, T>,
@@ -196,8 +240,26 @@ impl Condvar {
 
     /// Blocks the thread while the predicate remains `true`, with a deadline.
     ///
-    /// This loops on [`wait_block_timeout`] while `condition` evaluates to `true`,
-    /// returning once it becomes `false` or the deadline is reached.
+    /// This method will atomically unlock the mutex specified by the guard and block
+    /// the current thread as long as the `condition` closure returns `true`.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native (main or worker)**: Uses thread parking with timeout
+    /// - **WASM worker threads**: Blocks using `Atomics.wait` with timeout when available
+    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    ///
+    /// # Predicate
+    ///
+    /// The `condition` closure is called:
+    /// 1. Before waiting (if it returns `false`, the method returns immediately)
+    /// 2. After each notification (to check if we should keep waiting)
+    /// 3. After spurious wakeups (to ensure we don't return prematurely)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method automatically handles spurious wakeups by re-checking the condition.
+    /// You do not need to loop around this call.
     ///
     /// # Examples
     ///

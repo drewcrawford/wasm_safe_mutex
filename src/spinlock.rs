@@ -3,6 +3,13 @@
 //!
 //! This module provides a spinlock that is used internally by the main mutex
 //! implementation for managing waiting thread lists.
+//!
+//! # Internal Use Only
+//!
+//! This spinlock is primarily intended for internal use within this crate.
+//! While it is exposed publicly, most users should prefer [`Mutex`](crate::Mutex)
+//! or [`RwLock`](crate::rwlock::RwLock) which provide more robust locking strategies
+//! including thread parking and async support.
 
 use std::cell::UnsafeCell;
 

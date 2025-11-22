@@ -1,5 +1,5 @@
-use super::{Condvar, WaitTimeoutResult};
 use super::Instant;
+use super::{Condvar, WaitTimeoutResult};
 use crate::Guard;
 
 #[cfg(target_arch = "wasm32")]
@@ -195,6 +195,53 @@ impl Condvar {
     }
 
     /// Automatically waits while the predicate is `true`, choosing the best strategy per platform.
+    ///
+    /// This method blocks the current thread and waits for a notification as long as the
+    /// `condition` closure returns `true`. It automatically handles platform-specific
+    /// details to ensure the most efficient waiting mechanism is used.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native (any thread)**: Uses efficient thread parking
+    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    ///
+    /// # Predicate
+    ///
+    /// The `condition` closure is called:
+    /// 1. Before waiting (if it returns `false`, the method returns immediately)
+    /// 2. After each notification (to check if we should keep waiting)
+    /// 3. After spurious wakeups (to ensure we don't return prematurely)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method automatically handles spurious wakeups by re-checking the condition.
+    /// You do not need to loop around this call.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     let (mutex, condvar) = &*pair_clone;
+    ///     let mut ready = mutex.lock_sync();
+    ///     *ready = true;
+    ///     drop(ready);
+    ///     condvar.notify_one();
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_sync();
+    /// // Wait until ready becomes true
+    /// ready = condvar.wait_sync_while(ready, |r| !*r);
+    /// assert!(*ready);
+    /// ```
     pub fn wait_sync_while<'a, T, F>(
         &self,
         mut guard: Guard<'a, T>,

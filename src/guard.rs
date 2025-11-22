@@ -15,6 +15,14 @@ use crate::rwlock::{LOCKED_WRITE, RwLock, UNLOCKED};
 /// The guard implements `Deref` and `DerefMut`, allowing you to access the
 /// protected data directly.
 ///
+/// # RAII Pattern
+///
+/// This guard follows the RAII (Resource Acquisition Is Initialization) pattern.
+/// The lock is acquired when the guard is created and released when the guard is dropped.
+/// This ensures that locks are always released, even if the code panics or returns early.
+///
+/// You can manually drop the guard using `drop(guard)` to release the lock early.
+///
 /// # Examples
 ///
 /// ```

@@ -173,6 +173,12 @@ impl<T> Sender<T> {
     }
 
     /// Sends a value on this channel, using the appropriate strategy for the platform.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native (any thread)**: Uses efficient thread parking if the lock is contended
+    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking if contended
+    /// - **WASM main thread**: Falls back to spinning to avoid panic
     pub fn send_sync(&self, t: T) -> Result<(), SendError<T>> {
         if !self.shared.receiver_active.load(Ordering::SeqCst) {
             return Err(SendError(t));
@@ -293,6 +299,12 @@ impl<T> Receiver<T> {
     }
 
     /// Receives a value from the channel, using the appropriate strategy for the platform.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native (any thread)**: Uses efficient thread parking while waiting for data
+    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking while waiting
+    /// - **WASM main thread**: Falls back to spinning to avoid panic
     pub fn recv_sync(&self) -> Result<T, RecvError> {
         let mut queue = self.shared.queue.lock_sync();
         loop {
@@ -307,6 +319,12 @@ impl<T> Receiver<T> {
     }
 
     /// Receives a value from the channel, using the appropriate strategy for the platform, with a timeout.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native (any thread)**: Uses efficient thread parking with timeout
+    /// - **WASM worker threads**: Uses `Atomics.wait` with timeout
+    /// - **WASM main thread**: Falls back to spinning
     pub fn recv_sync_timeout(&self, deadline: Instant) -> Result<T, RecvTimeoutError> {
         let mut queue = match self.shared.queue.lock_sync_timeout(deadline) {
             Some(guard) => guard,

@@ -163,7 +163,7 @@ impl<T> RwLock<T> {
     ///
     /// let rwlock = RwLock::new(HashMap::new());
     ///
-    /// let mut guard = rwlock.lock_async_read_write().await;
+    /// let mut guard = rwlock.lock_async_write().await;
     /// guard.insert("key", "value");
     /// drop(guard);
     ///
@@ -171,12 +171,7 @@ impl<T> RwLock<T> {
     /// assert_eq!(guard.get("key"), Some(&"value"));
     /// # });
     /// ```
-    ///
-    /// ## Note
-    ///
-    /// The method is currently named `lock_async_read_write` but functions as
-    /// an async write lock. The name may be updated in future versions for clarity.
-    pub async fn lock_async_read_write(&self) -> WriteGuard<'_, T> {
+    pub async fn lock_async_write(&self) -> WriteGuard<'_, T> {
         loop {
             let a = self.waiting_async_write_threads.with_mut(|senders| {
                 match self.try_lock_write() {
@@ -331,7 +326,7 @@ export function supportsAtomicsWait() {
     /// # });
     /// ```
     pub async fn with_mut_async<R, F: FnOnce(&mut T) -> R>(&self, f: F) -> R {
-        let mut guard = self.lock_async_read_write().await;
+        let mut guard = self.lock_async_write().await;
         f(&mut guard)
     }
 }

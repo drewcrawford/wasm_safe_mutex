@@ -92,7 +92,7 @@
 //! drop(guard);
 //!
 //! // Async write for modifications
-//! let mut guard = rwlock.lock_async_read_write().await;
+//! let mut guard = rwlock.lock_async_write().await;
 //! guard.push(4);
 //! drop(guard);
 //!

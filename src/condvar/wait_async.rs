@@ -1,6 +1,6 @@
-use super::{AsyncWaiter, Condvar, WaitTimeoutResult, ASYNC_WAITER_ID_COUNTER};
 use super::Instant;
 use super::thread;
+use super::{ASYNC_WAITER_ID_COUNTER, AsyncWaiter, Condvar, WaitTimeoutResult};
 use crate::Guard;
 use std::future::Future;
 use std::pin::Pin;
@@ -71,7 +71,56 @@ impl Condvar {
 
     /// Asynchronously waits while the predicate remains `true`.
     ///
-    /// This loops on [`wait_async`] while `condition` evaluates to `true`.
+    /// This method will atomically unlock the mutex specified by the guard and
+    /// await a notification as long as the `condition` closure returns `true`.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **All Platforms**: Uses async/await to yield execution. This is non-blocking
+    ///   and works in all environments, including WASM main thread.
+    ///
+    /// # Predicate
+    ///
+    /// The `condition` closure is called:
+    /// 1. Before waiting (if it returns `false`, the method returns immediately)
+    /// 2. After each notification (to check if we should keep waiting)
+    /// 3. After spurious wakeups (to ensure we don't return prematurely)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method automatically handles spurious wakeups by re-checking the condition.
+    /// You do not need to loop around this call.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # test_executors::spin_on(async {
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     # #[cfg(not(target_arch = "wasm32"))]
+    ///     std::thread::sleep(std::time::Duration::from_millis(10));
+    ///     test_executors::spin_on(async {
+    ///         let (mutex, condvar) = &*pair_clone;
+    ///         let mut ready = mutex.lock_async().await;
+    ///         *ready = true;
+    ///         drop(ready);
+    ///         condvar.notify_one();
+    ///     });
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let mut ready = mutex.lock_async().await;
+    /// // Wait until ready becomes true
+    /// ready = condvar.wait_async_while(ready, |r| !*r).await;
+    /// assert!(*ready);
+    /// # });
+    /// ```
     pub async fn wait_async_while<'a, T, F>(
         &self,
         mut guard: Guard<'a, T>,
@@ -151,7 +200,10 @@ impl Condvar {
 
         // Add to waiting list
         self.waiting_async_threads.with_mut(|waiters| {
-            waiters.push(AsyncWaiter { id: waiter_id, sender: notify_sender });
+            waiters.push(AsyncWaiter {
+                id: waiter_id,
+                sender: notify_sender,
+            });
         });
 
         // Spawn a thread to handle the timeout
@@ -225,7 +277,62 @@ impl Condvar {
 
     /// Asynchronously waits while the predicate remains `true`, bounded by the deadline.
     ///
-    /// This loops on [`wait_async_timeout`] while `condition` evaluates to `true` and stops when it is `false` or timing out.
+    /// This method will atomically unlock the mutex specified by the guard and
+    /// await a notification as long as the `condition` closure returns `true`.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **All Platforms**: Uses async/await to yield execution. This is non-blocking
+    ///   and works in all environments, including WASM main thread.
+    ///
+    /// # Predicate
+    ///
+    /// The `condition` closure is called:
+    /// 1. Before waiting (if it returns `false`, the method returns immediately)
+    /// 2. After each notification (to check if we should keep waiting)
+    /// 3. After spurious wakeups (to ensure we don't return prematurely)
+    ///
+    /// # Spurious Wakeups
+    ///
+    /// This method automatically handles spurious wakeups by re-checking the condition.
+    /// You do not need to loop around this call.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # test_executors::spin_on(async {
+    /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
+    /// use std::sync::Arc;
+    /// # #[cfg(target_arch = "wasm32")]
+    /// use web_time::{Duration, Instant};
+    /// # #[cfg(not(target_arch = "wasm32"))]
+    /// # use std::time::{Duration, Instant};
+    /// # use std::thread;
+    ///
+    /// let pair = Arc::new((Mutex::new(0), Condvar::new()));
+    /// let pair_clone = Arc::clone(&pair);
+    ///
+    /// thread::spawn(move || {
+    ///     # #[cfg(not(target_arch = "wasm32"))]
+    ///     std::thread::sleep(std::time::Duration::from_millis(10));
+    ///     test_executors::spin_on(async {
+    ///         let (mutex, condvar) = &*pair_clone;
+    ///         let mut value = mutex.lock_async().await;
+    ///         *value = 10;
+    ///         drop(value);
+    ///         condvar.notify_one();
+    ///     });
+    /// });
+    ///
+    /// let (mutex, condvar) = &*pair;
+    /// let guard = mutex.lock_async().await;
+    /// let deadline = Instant::now() + Duration::from_secs(1);
+    /// let (guard, result) = condvar.wait_async_timeout_while(guard, deadline, |v| *v < 10).await;
+    /// if !result.timed_out() {
+    ///     assert_eq!(*guard, 10);
+    /// }
+    /// # });
+    /// ```
     pub async fn wait_async_timeout_while<'a, T, F>(
         &self,
         mut guard: Guard<'a, T>,
