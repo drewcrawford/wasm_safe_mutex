@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::Mutex;
 
 pub(crate) fn with_sync<T, R, F: FnOnce(&T) -> R>(mutex: &Mutex<T>, f: F) -> R {

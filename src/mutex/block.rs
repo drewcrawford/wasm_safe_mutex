@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{Mutex, NotAvailable};
 use crate::guard::Guard;
 use std::thread;

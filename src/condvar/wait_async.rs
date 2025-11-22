@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::Instant;
 use super::thread;
 use super::{ASYNC_WAITER_ID_COUNTER, AsyncWaiter, Condvar, WaitTimeoutResult};

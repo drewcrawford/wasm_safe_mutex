@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::LOCKED_WRITE;
 use super::inner::RwLock;
 use crate::NotAvailable;
