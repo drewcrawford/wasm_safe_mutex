@@ -8,12 +8,12 @@ homepage = "https://sealedabstract.com/code/wasm_safe_mutex"
 description = "A mutex safe for use in browsers on the main thread"
 license = "MIT OR Apache-2.0"
 keywords = ["concurrency", "lock", "mutex", "spinlock", "wasm"]
-categories = ["asynchronous", "concurrency", "wasm" ]
+categories = ["asynchronous", "concurrency", "wasm","data-structures","algorithms"]
 exclude = [".*"]
 rust-version = "1.85.1"
 
 [dependencies]
-continue = "0.1"
+continue = "0.1.1"
 
 [dev-dependencies]
 test_executors = "0.3.5"

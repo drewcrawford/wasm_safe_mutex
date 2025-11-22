@@ -4,7 +4,7 @@
 //! This module provides a condition variable that works across native and WebAssembly targets,
 //! automatically adapting its waiting strategy based on the runtime environment.
 
-use crate::Spinlock;
+use crate::spinlock::Spinlock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 
