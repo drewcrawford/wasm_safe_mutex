@@ -6,51 +6,21 @@ use std::sync::atomic::AtomicBool;
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
-#[cfg(target_arch = "wasm32")]
 use wasm_thread as thread;
-
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-/// Error returned when a lock cannot be immediately acquired.
-///
-/// This error is returned by [`Mutex::try_lock`] when the mutex is already
-/// locked by another thread.
-///
-/// # Examples
-///
-/// ```
-/// use wasm_safe_mutex::{Mutex, NotAvailable};
-///
-/// let mutex = Mutex::new(42);
-/// let _guard = mutex.lock_sync();
-///
-/// // Try to lock while already locked
-/// match mutex.try_lock() {
-///     Ok(_) => panic!("Should not succeed"),
-///     Err(NotAvailable) => println!("Lock is held by another thread"),
-/// }
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NotAvailable;
+mod async_impl;
+mod block;
+mod not_available;
+mod spin;
+mod sync_impl;
+mod with;
 
-// ================================================================================================
-// Boilerplate trait implementations
-// ================================================================================================
-
-impl std::fmt::Display for NotAvailable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "lock not available")
-    }
-}
-
-impl std::error::Error for NotAvailable {}
+pub use not_available::NotAvailable;
 
 // ================================================================================================
 // Main types
@@ -116,10 +86,10 @@ impl std::error::Error for NotAvailable {}
 /// ```
 #[derive(Debug)]
 pub struct Mutex<T> {
-    inner: UnsafeCell<T>,
+    pub(crate) inner: UnsafeCell<T>,
     pub(crate) data_lock: AtomicBool,
-    waiting_sync_threads: Spinlock<Vec<thread::Thread>>,
-    waiting_async_threads: Spinlock<Vec<r#continue::Sender<()>>>,
+    pub(crate) waiting_sync_threads: Spinlock<Vec<thread::Thread>>,
+    pub(crate) waiting_async_threads: Spinlock<Vec<r#continue::Sender<()>>>,
 }
 impl<T> Mutex<T> {
     /// Creates a new mutex with the given initial value.
@@ -232,16 +202,7 @@ impl<T> Mutex<T> {
     /// });
     /// ```
     pub fn lock_spin(&self) -> Guard<'_, T> {
-        // Spin until we can acquire the lock
-        while self
-            .data_lock
-            .swap(true, std::sync::atomic::Ordering::Acquire)
-        {
-            std::hint::spin_loop();
-        }
-        // SAFETY: We have exclusive access to the data now
-        let data = unsafe { &mut *self.inner.get() };
-        Guard { mutex: self, data }
+        spin::lock_spin(self)
     }
 
     /// Acquires the lock by spinning until it becomes available or the deadline is reached.
@@ -268,19 +229,7 @@ impl<T> Mutex<T> {
     /// }
     /// ```
     pub fn lock_spin_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
-        // Spin until we can acquire the lock
-        while self
-            .data_lock
-            .swap(true, std::sync::atomic::Ordering::Acquire)
-        {
-            if Instant::now() >= deadline {
-                return None;
-            }
-            std::hint::spin_loop();
-        }
-        // SAFETY: We have exclusive access to the data now
-        let data = unsafe { &mut *self.inner.get() };
-        Some(Guard { mutex: self, data })
+        spin::lock_spin_timeout(self, deadline)
     }
 
     /// Acquires the lock by blocking the current thread until it becomes available.
@@ -337,26 +286,7 @@ impl<T> Mutex<T> {
     /// assert_eq!(*guard, 100);
     /// ```
     pub fn lock_block(&self) -> Guard<'_, T> {
-        //insert our thread into the waiting list
-        loop {
-            let r = self.waiting_sync_threads.with_mut(|threads| {
-                match self.try_lock() {
-                    Ok(guard) => {
-                        // Return the guard
-                        Ok(guard)
-                    }
-                    Err(_) => {
-                        let handle = thread::current();
-                        threads.push(handle);
-                        Err(NotAvailable)
-                    }
-                }
-            });
-            match r {
-                Ok(guard) => return guard,
-                Err(NotAvailable) => std::thread::park(),
-            }
-        }
+        block::lock_block(self)
     }
 
     /// Acquires the lock by blocking with a timeout.
@@ -383,35 +313,7 @@ impl<T> Mutex<T> {
     /// }
     /// ```
     pub fn lock_block_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
-        loop {
-            let now = Instant::now();
-            if now >= deadline {
-                // Try one last time
-                if let Ok(guard) = self.try_lock() {
-                    return Some(guard);
-                }
-                return None;
-            }
-
-            let r = self
-                .waiting_sync_threads
-                .with_mut(|threads| match self.try_lock() {
-                    Ok(guard) => Ok(guard),
-                    Err(_) => {
-                        let handle = thread::current();
-                        threads.push(handle);
-                        Err(NotAvailable)
-                    }
-                });
-
-            match r {
-                Ok(guard) => return Some(guard),
-                Err(NotAvailable) => {
-                    let remaining = deadline - Instant::now();
-                    std::thread::park_timeout(remaining);
-                }
-            }
-        }
+        block::lock_block_timeout(self, deadline)
     }
 
     /// Asynchronously acquires the lock.
@@ -467,26 +369,7 @@ impl<T> Mutex<T> {
     /// # });
     /// ```
     pub async fn lock_async(&self) -> Guard<'_, T> {
-        loop {
-            let a = self.waiting_async_threads.with_mut(|senders| {
-                match self.try_lock() {
-                    Ok(guard) => Ok(guard),
-                    Err(NotAvailable) => {
-                        // Create a new channel to signal when the lock is available
-                        let (sender, receiver) = r#continue::continuation();
-                        senders.push(sender);
-                        Err(receiver)
-                    }
-                }
-            });
-            match a {
-                Ok(guard) => return guard,
-                Err(receiver) => {
-                    // Wait for the signal that the lock is available
-                    receiver.await;
-                }
-            }
-        }
+        async_impl::lock_async(self).await
     }
 
     /// Asynchronously acquires the lock with a timeout.
@@ -515,91 +398,7 @@ impl<T> Mutex<T> {
     /// # });
     /// ```
     pub async fn lock_async_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
-        loop {
-            let now = Instant::now();
-            if now >= deadline {
-                // Try one last time
-                if let Ok(guard) = self.try_lock() {
-                    return Some(guard);
-                }
-                return None;
-            }
-
-            let a = self.waiting_async_threads.with_mut(|senders| {
-                match self.try_lock() {
-                    Ok(guard) => Ok(guard),
-                    Err(NotAvailable) => {
-                        // Create a new channel to signal when the lock is available
-                        let (sender, receiver) = r#continue::continuation();
-                        senders.push(sender);
-                        Err(receiver)
-                    }
-                }
-            });
-
-            match a {
-                Ok(guard) => return Some(guard),
-                Err(receiver) => {
-                    // Create a channel for timeout
-                    let (timeout_sender, timeout_receiver) = r#continue::continuation();
-
-                    // Spawn a thread to handle the timeout
-                    thread::spawn(move || {
-                        let now = Instant::now();
-                        if deadline > now {
-                            let duration = deadline - now;
-                            thread::sleep(duration);
-                        }
-                        // Send timeout signal
-                        timeout_sender.send(());
-                    });
-
-                    // Race between notification and timeout
-                    struct Race<F1, F2> {
-                        notify: Option<F1>,
-                        timeout: Option<F2>,
-                    }
-
-                    impl<F1: Future + Unpin, F2: Future + Unpin> Future for Race<F1, F2> {
-                        type Output = bool; // true if timed out
-
-                        fn poll(
-                            mut self: Pin<&mut Self>,
-                            cx: &mut Context<'_>,
-                        ) -> Poll<Self::Output> {
-                            // Poll notification future
-                            if let Some(ref mut notify) = self.notify {
-                                if Pin::new(notify).poll(cx).is_ready() {
-                                    self.notify = None;
-                                    return Poll::Ready(false); // Got notification
-                                }
-                            }
-
-                            // Poll timeout future
-                            if let Some(ref mut timeout) = self.timeout {
-                                if Pin::new(timeout).poll(cx).is_ready() {
-                                    self.timeout = None;
-                                    return Poll::Ready(true); // Timed out
-                                }
-                            }
-
-                            Poll::Pending
-                        }
-                    }
-
-                    let timed_out = Race {
-                        notify: Some(receiver),
-                        timeout: Some(timeout_receiver),
-                    }
-                    .await;
-
-                    if timed_out {
-                        return None;
-                    }
-                    // If not timed out, we loop and try to lock again
-                }
-            }
-        }
+        async_impl::lock_async_timeout(self, deadline).await
     }
     pub(crate) fn did_unlock(&self) {
         //pop the waiting threads
@@ -658,40 +457,7 @@ impl<T> Mutex<T> {
     /// assert_eq!(result, 42);
     /// ```
     pub fn lock_sync(&self) -> Guard<'_, T> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.lock_block()
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            use wasm_bindgen::prelude::wasm_bindgen;
-            //check if we're on the main thread
-            #[wasm_bindgen(inline_js = "
-export function supportsAtomicsWait() {
-    if (typeof SharedArrayBuffer === 'undefined') return false;
-    if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
-
-    try {
-        const sab = new SharedArrayBuffer(4);
-        const ia = new Int32Array(sab);
-        const result = Atomics.wait(ia, 0, 0, 0);
-        return result === 'timed-out' || result === 'not-equal';
-    } catch (_) {
-        return false;
-    }
-}
-")]
-            extern "C" {
-                fn supportsAtomicsWait() -> bool;
-            }
-
-            if supportsAtomicsWait() {
-                self.lock_block()
-            } else {
-                // Fallback to spin lock if Atomics.wait is not supported
-                self.lock_spin()
-            }
-        }
+        sync_impl::lock_sync(self)
     }
 
     /// Automatically chooses the right locking strategy with a timeout.
@@ -718,18 +484,7 @@ export function supportsAtomicsWait() {
     /// }
     /// ```
     pub fn lock_sync_timeout(&self, deadline: Instant) -> Option<Guard<'_, T>> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.lock_block_timeout(deadline)
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            if crate::condvar::atomics_wait_supported() {
-                self.lock_block_timeout(deadline)
-            } else {
-                self.lock_spin_timeout(deadline)
-            }
-        }
+        sync_impl::lock_sync_timeout(self, deadline)
     }
 
     /// Accesses the data inside the mutex synchronously with a read-only closure.
@@ -779,8 +534,7 @@ export function supportsAtomicsWait() {
     /// assert_eq!(count, 2);
     /// ```
     pub fn with_sync<R, F: FnOnce(&T) -> R>(&self, f: F) -> R {
-        let guard = self.lock_sync();
-        f(&guard)
+        with::with_sync(self, f)
     }
     /// Accesses the data inside the mutex synchronously with a mutable closure.
     ///
@@ -828,8 +582,7 @@ export function supportsAtomicsWait() {
     /// assert_eq!(old_temp, Some(25));
     /// ```
     pub fn with_mut_sync<R, F: FnOnce(&mut T) -> R>(&self, f: F) -> R {
-        let mut guard = self.lock_sync();
-        f(&mut guard)
+        with::with_mut_sync(self, f)
     }
 
     /// Accesses the data inside the mutex asynchronously with a read-only closure.
@@ -884,8 +637,7 @@ export function supportsAtomicsWait() {
     /// # });
     /// ```
     pub async fn with_async<R, F: FnOnce(&T) -> R>(&self, f: F) -> R {
-        let guard = self.lock_async().await;
-        f(&guard)
+        with::with_async(self, f).await
     }
 
     /// Accesses the data inside the mutex asynchronously with a mutable closure.
@@ -949,8 +701,7 @@ export function supportsAtomicsWait() {
     /// # });
     /// ```
     pub async fn with_mut_async<R, F: FnOnce(&mut T) -> R>(&self, f: F) -> R {
-        let mut guard = self.lock_async().await;
-        f(&mut guard)
+        with::with_mut_async(self, f).await
     }
 }
 
