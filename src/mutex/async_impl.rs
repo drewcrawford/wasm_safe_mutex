@@ -4,7 +4,11 @@ use crate::guard::Guard;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
+#[cfg(target_arch = "wasm32")]
+use wasm_thread as thread;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -67,15 +71,18 @@ pub(crate) async fn lock_async_timeout<T>(
                 let (timeout_sender, timeout_receiver) = r#continue::continuation();
 
                 // Spawn a thread to handle the timeout
-                thread::spawn(move || {
-                    let now = Instant::now();
-                    if deadline > now {
-                        let duration = deadline - now;
-                        thread::sleep(duration);
-                    }
-                    // Send timeout signal
-                    timeout_sender.send(());
-                });
+                thread::Builder::new()
+                    .name("lock_async_timeout".to_string())
+                    .spawn(move || {
+                        let now = Instant::now();
+                        if deadline > now {
+                            let duration = deadline - now;
+                            thread::sleep(duration);
+                        }
+                        // Send timeout signal
+                        timeout_sender.send(());
+                    })
+                    .expect("Failed to spawn timeout thread");
 
                 // Race between notification and timeout
                 struct Race<F1, F2> {
