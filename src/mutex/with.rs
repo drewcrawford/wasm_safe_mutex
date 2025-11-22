@@ -1,5 +1,4 @@
 use super::Mutex;
-use std::future::Future;
 
 pub(crate) fn with_sync<T, R, F: FnOnce(&T) -> R>(mutex: &Mutex<T>, f: F) -> R {
     let guard = mutex.lock_sync();

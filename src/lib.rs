@@ -33,7 +33,7 @@
 //! - **[`Mutex`]**: A mutual exclusion primitive for protecting shared data.
 //! - **[`RwLock`](rwlock::RwLock)**: A reader-writer lock that allows multiple concurrent readers or one exclusive writer.
 //! - **[`Condvar`](condvar::Condvar)**: A condition variable for blocking a thread while waiting for an event.
-//! - **[`mpsc`](mpsc)**: A multi-producer, single-consumer channel for message passing.
+//! - **[`mpsc`]**: A multi-producer, single-consumer channel for message passing.
 //!
 //! # Features
 //!

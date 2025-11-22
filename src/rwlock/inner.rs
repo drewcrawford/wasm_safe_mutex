@@ -1,17 +1,14 @@
-use crate::NotAvailable;
-use crate::guard::{ReadGuard, WriteGuard};
 use crate::spinlock::Spinlock;
 use std::cell::UnsafeCell;
 use std::fmt::Display;
 use std::sync::atomic::AtomicU8;
-use std::sync::atomic::Ordering::{Acquire, Relaxed};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
 use wasm_thread as thread;
 
-use super::{LOCKED_WRITE, UNLOCKED};
+use super::UNLOCKED;
 
 /// A reader-writer lock that works across native and WebAssembly targets.
 ///
