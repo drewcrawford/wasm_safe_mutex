@@ -1,3 +1,20 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! A mutual exclusion primitive that works across native and WebAssembly targets.
+//!
+//! This module provides the [`Mutex`] type, which is a drop-in replacement for `std::sync::Mutex`
+//! but with added capabilities for WebAssembly environments.
+//!
+//! # Features
+//!
+//! - **Cross-Platform**: Works on Native, WASM worker threads, and WASM main thread.
+//! - **Automatic Adaptation**: Detects the environment and chooses the best locking strategy (blocking, spinning, or async).
+//! - **Async Support**: Provides `lock_async` for non-blocking acquisition in async contexts.
+//! - **Flexible API**: Offers `lock_block`, `lock_spin`, `try_lock`, and `lock_sync` to suit different needs.
+//!
+//! # Usage
+//!
+//! See the [`Mutex`] struct documentation for detailed usage examples.
+
 use crate::guard::Guard;
 use crate::spinlock::Spinlock;
 use std::cell::UnsafeCell;

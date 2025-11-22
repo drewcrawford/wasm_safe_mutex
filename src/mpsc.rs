@@ -1,3 +1,29 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! A multi-producer, single-consumer FIFO queue communication primitive.
+//!
+//! This module provides message-based communication over channels, similar to `std::sync::mpsc`,
+//! but designed to work reliably across Native and WebAssembly environments.
+//!
+//! # Features
+//!
+//! - **Cross-Platform**: Works on Native, WASM worker threads, and WASM main thread.
+//! - **Async Support**: Provides `send_async` and `recv_async` for integration with async runtimes.
+//! - **Platform-Aware**: Automatically chooses the best waiting strategy (blocking or spinning) based on the thread type.
+//! - **Infinite Buffer**: The channel has an infinite buffer, so `send` never blocks (unless the lock is contended).
+//!
+//! # Usage
+//!
+//! Create a channel with [`channel()`], which returns a [`Sender`] and a [`Receiver`].
+//!
+//! ```
+//! use wasm_safe_mutex::mpsc::channel;
+//!
+//! let (tx, rx) = channel();
+//!
+//! tx.send_sync(42).unwrap();
+//! assert_eq!(rx.recv_sync().unwrap(), 42);
+//! ```
+
 use crate::{Mutex, condvar::Condvar};
 use std::cell::Cell;
 use std::collections::VecDeque;
