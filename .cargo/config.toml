@@ -5,8 +5,9 @@ build-std = ["std", "panic_abort"]
 runner = "wasm-bindgen-test-runner"
 # see https://github.com/wasm-bindgen/wasm-bindgen/issues/4727
 # and https://github.com/rust-lang/rust/pull/147225
-rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
-"-Clink-arg=--shared-memory",
+rustflags = [
+    "-C", "target-feature=+atomics",
+    "-Clink-arg=--shared-memory",
     # 4GB
     "-Clink-arg=--max-memory=4294967296",
     "-Clink-arg=--import-memory",

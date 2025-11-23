@@ -13,7 +13,15 @@ jobs:
         features: [ "" ]
         target: [ "" ]
         cwd: [ "." ]
-        additional_rustflags: [ "" ]
+        additional_rustflags: [     "-C", "target-feature=+atomics",
+                                    "-Clink-arg=--shared-memory",
+          # 4GB
+                                    "-Clink-arg=--max-memory=4294967296",
+                                    "-Clink-arg=--import-memory",
+                                    "-Clink-arg=--export=__wasm_init_tls",
+                                    "-Clink-arg=--export=__tls_size",
+                                    "-Clink-arg=--export=__tls_align",
+                                    "-Clink-arg=--export=__tls_base" ]
         os: [ ubuntu-latest ]
 
         include:
@@ -106,14 +114,5 @@ jobs:
       - name: docs
         run: cd ${{ matrix.cwd }} && RUSTDOCFLAGS="-D warnings" cargo ${{ matrix.channel }}  doc ${{ steps.args.outputs.features }} ${{ steps.args.outputs.target }}
 
-      - name: docs
+      - name: test
         run: cd ${{ matrix.cwd }} && RUSTDOCFLAGS="-D warnings" cargo ${{ matrix.channel }}  test ${{ steps.args.outputs.features }} ${{ steps.args.outputs.target }}
-
-      - name: Run WASM tests (non-Weston)
-        if: matrix.target == 'wasm32-unknown-unknown'
-        run: |
-          cd ${{ matrix.cwd }}
-          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER="wasm-bindgen-test-runner" \
-            RUSTFLAGS="${{ matrix.additional_rustflags}} -Dwarnings" RUSTDOCFLAGS="${{ matrix.additional_rustflags }} -Dwarnings" \
-          cargo ${{ matrix.channel }} \
-            test ${{ steps.args.outputs.features }} ${{ steps.args.outputs.target }} --all
