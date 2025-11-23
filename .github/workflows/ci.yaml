@@ -14,6 +14,7 @@ jobs:
         target: [ "" ]
         cwd: [ "." ]
         additional_rustflags: [""]
+        additional_test_prefix: [""]
         os: [ ubuntu-latest ]
 
         include:
@@ -22,6 +23,8 @@ jobs:
             target: "wasm32-unknown-unknown"
             cwd: "."
             additional_rustflags: "-C target-feature=+atomics -Clink-arg=--shared-memory -Clink-arg=--max-memory=4294967296 -Clink-arg=--import-memory -Clink-arg=--export=__wasm_init_tls -Clink-arg=--export=__tls_size -Clink-arg=--export=__tls_align -Clink-arg=--export=__tls_base"
+            # for some reason, github's firefox likes to crash on us
+            additional_test_prefix: "CHROMEDRIVER=`which chromedriver`"
 
     steps:
       - uses: actions/checkout@v4
@@ -109,4 +112,4 @@ jobs:
         run: cd ${{ matrix.cwd }} && RUSTDOCFLAGS="-D warnings" cargo ${{ matrix.channel }}  doc ${{ steps.args.outputs.features }} ${{ steps.args.outputs.target }}
 
       - name: test
-        run: cd ${{ matrix.cwd }} && RUSTDOCFLAGS="-D warnings" cargo ${{ matrix.channel }}  test ${{ steps.args.outputs.features }} ${{ steps.args.outputs.target }}
+        run: ${{ matrix.additional_test_prefix}} cd ${{ matrix.cwd }} && RUSTDOCFLAGS="-D warnings" cargo ${{ matrix.channel }}  test ${{ steps.args.outputs.features }} ${{ steps.args.outputs.target }}
