@@ -277,10 +277,17 @@ async fn test_mutex_lock_block_timeout() {
 
     r.await;
 
-    // Try to acquire with short timeout
-    let deadline = Instant::now() + Duration::from_millis(10);
-    let result = mutex.lock_block_timeout(deadline);
-    assert!(result.is_none());
+    // Try to acquire with short timeout - must run in worker thread on WASM
+    // because lock_block_timeout uses Atomics.wait which is forbidden on main thread
+    let mutex_clone2 = Arc::clone(&mutex);
+    let (c2, r2) = continuation();
+    thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_millis(10);
+        let result = mutex_clone2.lock_block_timeout(deadline);
+        assert!(result.is_none());
+        c2.send(());
+    });
+    r2.await;
 
     // Wait for thread to release (approx)
     #[cfg(not(target_arch = "wasm32"))]
@@ -295,13 +302,19 @@ async fn test_mutex_lock_block_timeout() {
         }
     }
 
-    // Should succeed now
-    let deadline = Instant::now() + Duration::from_secs(1);
-    if let Some(guard) = mutex.lock_block_timeout(deadline) {
-        assert_eq!(*guard, 0);
-    } else {
-        panic!("Failed to acquire lock after release");
-    }
+    // Should succeed now - must run in worker thread on WASM
+    let mutex_clone3 = Arc::clone(&mutex);
+    let (c3, r3) = continuation();
+    thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        if let Some(guard) = mutex_clone3.lock_block_timeout(deadline) {
+            assert_eq!(*guard, 0);
+        } else {
+            panic!("Failed to acquire lock after release");
+        }
+        c3.send(());
+    });
+    r3.await;
 }
 
 #[test_executors::async_test]
