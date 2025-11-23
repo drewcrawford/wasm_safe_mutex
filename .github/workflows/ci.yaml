@@ -13,15 +13,7 @@ jobs:
         features: [ "" ]
         target: [ "" ]
         cwd: [ "." ]
-        additional_rustflags: [     "-C", "target-feature=+atomics",
-                                    "-Clink-arg=--shared-memory",
-          # 4GB
-                                    "-Clink-arg=--max-memory=4294967296",
-                                    "-Clink-arg=--import-memory",
-                                    "-Clink-arg=--export=__wasm_init_tls",
-                                    "-Clink-arg=--export=__tls_size",
-                                    "-Clink-arg=--export=__tls_align",
-                                    "-Clink-arg=--export=__tls_base" ]
+        additional_rustflags: [""]
         os: [ ubuntu-latest ]
 
         include:
@@ -29,7 +21,7 @@ jobs:
             channel: "+nightly"
             target: "wasm32-unknown-unknown"
             cwd: "."
-            additional_rustflags: "-C target-feature=+atomics"
+            additional_rustflags: "-C target-feature=+atomics -Clink-arg=--shared-memory -Clink-arg=--max-memory=4294967296 -Clink-arg=--import-memory -Clink-arg=--export=__wasm_init_tls -Clink-arg=--export=__tls_size -Clink-arg=--export=__tls_align -Clink-arg=--export=__tls_base"
 
     steps:
       - uses: actions/checkout@v4
