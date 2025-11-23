@@ -97,10 +97,9 @@ jobs:
         run: |
           # we need ssh-add here to load local deps
           if [[ "$GITEA_ACTIONS" == "true" ]]; then
-            echo "It's true"
+            eval `ssh-agent`
+            ssh-add
           fi
-          eval `ssh-agent`
-          ssh-add
           cd ${{ matrix.cwd }} && RUSTFLAGS="$ADDITIONAL_RUSTFLAGS -Dwarnings" cargo ${{ matrix.channel }} check ${{ steps.args.outputs.features }} ${{ steps.args.outputs.target }}
 
       - name: clippy
