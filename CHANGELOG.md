@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-11-28
+
+A quick dependency housekeeping stop—nothing to see here, move along!
+
+### Changed
+
+- Relaxed `wasm-bindgen` dependency constraint to allow version 0.2.106 (previously pinned to exactly 0.2.105)—because sometimes newer is better, and we trust the semver gods
+
+No API changes, no behavior changes, just a little more breathing room for your dependency tree.
+
+## [0.1.1] - 2025-11-21
+
 This release brings three major new synchronization primitives to the family, making `wasm_safe_mutex` a comprehensive concurrency toolkit for WebAssembly.
 
 ### Added
