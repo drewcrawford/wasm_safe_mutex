@@ -46,7 +46,6 @@ struct Shared<T> {
     receiver_active: AtomicBool,
 }
 
-
 pub struct Sender<T> {
     shared: Arc<Shared<T>>,
 }
