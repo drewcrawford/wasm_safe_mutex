@@ -79,5 +79,7 @@ The beginning! A WebAssembly-safe mutex that automatically adapts its locking st
 - Basic spinlock implementation
 - Support for both native and WASM targets
 
-[Unreleased]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/drewcrawford/wasm_safe_mutex/releases/tag/v0.1.0
