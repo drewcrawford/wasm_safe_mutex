@@ -10,9 +10,9 @@ impl Condvar {
     /// Automatically chooses the right waiting strategy for your platform.
     ///
     /// This is the recommended method as it papers over all platform differences:
-    /// - **Native (any thread)**: Uses efficient thread parking
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     ///
     /// You don't need to worry about "cannot block on main thread" errors -
     /// this method handles that automatically by detecting the environment
@@ -81,9 +81,9 @@ impl Condvar {
     /// choosing the best strategy per platform.
     ///
     /// This is the recommended method as it papers over all platform differences:
-    /// - **Native (any thread)**: Uses efficient thread parking
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     ///
     /// # Examples
     ///
@@ -141,9 +141,9 @@ impl Condvar {
     /// Automatically chooses the right waiting strategy for your platform.
     ///
     /// This is the recommended method as it papers over all platform differences:
-    /// - **Native (any thread)**: Uses efficient thread parking
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     ///
     /// You don't need to worry about "cannot block on main thread" errors -
     /// this method handles that automatically by detecting the environment
@@ -203,9 +203,9 @@ impl Condvar {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (any thread)**: Uses efficient thread parking
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     ///
     /// # Predicate
     ///

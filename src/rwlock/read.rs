@@ -110,9 +110,13 @@ impl<T> RwLock<T> {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (main or worker)**: Uses thread parking for efficient blocking
-    /// - **WASM worker threads**: Blocks using `Atomics.wait` when available
-    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    /// - **Native**: Uses thread parking for efficient blocking
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`lock_sync_read`](Self::lock_sync_read) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`lock_sync_read`](Self::lock_sync_read).
     ///
     /// # Examples
     ///
@@ -202,9 +206,9 @@ impl<T> RwLock<T> {
     ///
     /// This is the recommended method for acquiring read locks as it papers over
     /// all platform differences:
-    /// - **Native (any thread)**: Uses efficient thread parking
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     ///
     /// You don't need to worry about "cannot block on main thread" errors -
     /// this method handles that automatically by detecting the environment

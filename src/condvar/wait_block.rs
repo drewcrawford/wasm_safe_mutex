@@ -13,9 +13,13 @@ impl Condvar {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (main or worker)**: Uses thread parking for efficient blocking
-    /// - **WASM worker threads**: Blocks using `Atomics.wait` when available
-    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    /// - **Native**: Uses thread parking for efficient blocking
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`wait_sync`](Self::wait_sync) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`wait_sync`](Self::wait_sync).
     ///
     /// # Spurious Wakeups
     ///
@@ -72,9 +76,13 @@ impl Condvar {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (main or worker)**: Uses thread parking for efficient blocking
-    /// - **WASM worker threads**: Blocks using `Atomics.wait` when available
-    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    /// - **Native**: Uses thread parking for efficient blocking
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`wait_sync_while`](Self::wait_sync_while) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`wait_sync_while`](Self::wait_sync_while).
     ///
     /// # Predicate
     ///
@@ -134,9 +142,13 @@ impl Condvar {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (main or worker)**: Uses thread parking with timeout
-    /// - **WASM worker threads**: Blocks using `Atomics.wait` with timeout when available
-    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    /// - **Native**: Uses thread parking with timeout
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait` with timeout
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`wait_sync_timeout`](Self::wait_sync_timeout) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`wait_sync_timeout`](Self::wait_sync_timeout).
     ///
     /// # Spurious Wakeups
     ///
@@ -246,9 +258,13 @@ impl Condvar {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (main or worker)**: Uses thread parking with timeout
-    /// - **WASM worker threads**: Blocks using `Atomics.wait` with timeout when available
-    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    /// - **Native**: Uses thread parking with timeout
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait` with timeout
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`wait_sync_timeout_while`](Self::wait_sync_timeout_while) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`wait_sync_timeout_while`](Self::wait_sync_timeout_while).
     ///
     /// # Predicate
     ///

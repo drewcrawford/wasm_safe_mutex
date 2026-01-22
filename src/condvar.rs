@@ -60,9 +60,9 @@ static ASYNC_WAITER_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// and to notify other threads when the condition changes. This implementation automatically
 /// adapts to the platform:
 ///
-/// - **Native (any thread)**: Uses efficient thread parking
-/// - **WASM worker threads**: Uses `Atomics.wait` when available
-/// - **WASM main thread**: Falls back to spinning to avoid panic
+/// - **Native**: Uses efficient thread parking
+/// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+/// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 ///
 /// # Examples
 ///

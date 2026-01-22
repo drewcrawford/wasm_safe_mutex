@@ -14,9 +14,9 @@
 //! based on the runtime environment, just like our Mutex, but with the added benefit of
 //! allowing multiple concurrent readers:
 //!
-//! - **Native (any thread)**: Uses efficient thread parking for both readers and writers
-//! - **WASM worker threads**: Uses `Atomics.wait` when available for proper blocking
-//! - **WASM main thread**: Falls back to spinning (non-blocking busy-wait)
+//! - **Native**: Uses efficient thread parking for both readers and writers
+//! - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+//! - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 //!
 //! This means you get the performance benefits of read-write locks (multiple concurrent readers)
 //! while maintaining compatibility across all platforms without worrying about thread restrictions.

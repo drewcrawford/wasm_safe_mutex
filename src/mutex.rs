@@ -48,16 +48,16 @@ pub use not_available::NotAvailable;
 /// This mutex provides multiple locking strategies:
 /// - **`try_lock`**: Non-blocking attempt to acquire the lock
 /// - **`lock_spin`**: Spin-wait until the lock is acquired
-/// - **`lock_block`**: Blocks on native/WASM workers, spins on WASM main thread
-/// - **`lock_sync`**: Automatically chooses the right strategy for your platform
-/// - **`lock_async`**: Always non-blocking, works everywhere including WASM main thread
+/// - **`lock_block`**: Unconditionally blocks (will panic without `Atomics.wait`)
+/// - **`lock_sync`**: Automatically chooses blocking or spinning based on platform
+/// - **`lock_async`**: Always non-blocking, works everywhere
 ///
 /// ## Platform Behavior
 ///
-/// The mutex transparently handles platform differences:
-/// - **Native (main or worker thread)**: Full blocking with thread parking
-/// - **WASM worker threads**: Blocks using `Atomics.wait`
-/// - **WASM main thread**: Spins to avoid "cannot block on main thread" panic
+/// The `_sync` methods transparently handle platform differences:
+/// - **Native**: Full blocking with thread parking
+/// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+/// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 ///
 /// This automatic adaptation means your code works everywhere without modification.
 ///
@@ -257,11 +257,13 @@ impl<T> Mutex<T> {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (main or worker)**: Uses thread parking for efficient blocking
-    /// - **WASM worker threads**: Blocks using `Atomics.wait` when available
-    /// - **WASM main thread**: Falls back to spinning (cannot use blocking primitives)
+    /// - **Native**: Uses thread parking for efficient blocking
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`lock_sync`](Self::lock_sync) instead
     ///
-    /// This adaptation happens automatically - you don't need to check the platform.
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`lock_sync`](Self::lock_sync).
     ///
     /// # Examples
     ///
@@ -435,9 +437,9 @@ impl<T> Mutex<T> {
     /// Automatically chooses the right locking strategy for your platform.
     ///
     /// This is the recommended method as it papers over all platform differences:
-    /// - **Native (any thread)**: Uses efficient thread parking
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     ///
     /// You don't need to worry about "cannot block on main thread" errors -
     /// this method handles that automatically by detecting the environment

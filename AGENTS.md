@@ -5,6 +5,17 @@
 - Each primitive has a top-level module plus a helper directory (`src/mutex.rs` + `src/mutex/`, `src/rwlock.rs` + `src/rwlock/`, etc.); shared pieces live in `src/guard.rs` and `src/spinlock.rs`.
 - Tests reside in `src/tests.rs`; assets in `art/`; licensing and metadata at the repo root.
 
+## Four Horsemen
+
+This crate follows a design pattern called the "four horsemen", where most APIs come in fours:
+
+* The `_block` methods are a primitive that unconditionally block
+* The `_spin` methods a primitive that unconditionally spin
+* The `_sync` methods have an adaptive implementation that blocks if possible, spins if impossible
+* The `_async` methods have async behavior
+
+For most user code, you want to use `_sync` or `_async` high-level calls.
+
 ## Build, Test, and Development Commands
 - `cargo build` — compile for the host target.
 - `cargo test` — run host tests (sync + `test_executors` async).

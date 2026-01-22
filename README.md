@@ -17,11 +17,11 @@ However, blocking locks ARE allowed in:
 
 This crate provides synchronization primitives that automatically adapt their locking strategy based on the runtime environment:
 
-- **Native (any thread)**: Uses efficient thread parking (`thread::park`)
-- **WASM worker threads**: Uses `Atomics.wait` when available
-- **WASM main thread**: Falls back to spinning (non-blocking busy-wait)
+- **Native**: Uses efficient thread parking (`thread::park`)
+- **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+- **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 
-This means you can write code once and have it work correctly across all platforms, without worrying about whether you're on the main thread, a worker thread, native or WASM.
+This means you can write code once and have it work correctly across all platforms, without worrying about `Atomics.wait` availability.
 
 ## Primitives
 
@@ -31,6 +31,17 @@ This crate provides the following primitives, all of which support the adaptive 
 - **`RwLock`**: A reader-writer lock that allows multiple concurrent readers or one exclusive writer.
 - **`Condvar`**: A condition variable for blocking a thread while waiting for an event.
 - **`mpsc`**: A multi-producer, single-consumer channel for message passing.
+
+## Four Horsemen
+
+This crate follows a design pattern called the "four horsemen", where most APIs come in fours:
+
+* The `_block` methods are a primitive that unconditionally block
+* The `_spin` methods a primitive that unconditionally spin
+* The `_sync` methods have an adaptive implementation that blocks if possible, spins if impossible
+* The `_async` methods have async behavior
+
+For most user code, you want to use `_sync` or `_async` high-level calls.
 
 ## Features
 
@@ -101,8 +112,8 @@ let mut guard = mutex.lock_async().await;
 
 The primitives transparently handle platform differences:
 
-- **Native (main or worker thread)**: Full blocking with thread parking
-- **WASM worker threads**: Blocks using `Atomics.wait`
-- **WASM main thread**: Spins to avoid "cannot block on main thread" panic
+- **Native**: Full blocking with thread parking
+- **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+- **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 
 This automatic adaptation means your code works everywhere without modification.

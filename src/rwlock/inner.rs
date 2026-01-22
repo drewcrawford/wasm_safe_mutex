@@ -20,16 +20,16 @@ use super::UNLOCKED;
 /// Like [`Mutex`](crate::Mutex), this lock provides multiple locking strategies:
 /// - **`try_lock_read/write`**: Non-blocking attempt to acquire the lock
 /// - **`lock_spin_read/write`**: Spin-wait until the lock is acquired
-/// - **`lock_block_read/write`**: Blocks on native/WASM workers, spins on WASM main thread
-/// - **`lock_sync_read/write`**: Automatically chooses the right strategy for your platform
-/// - **`lock_async_read/read_write`**: Always non-blocking, works everywhere including WASM main thread
+/// - **`lock_block_read/write`**: Unconditionally blocks (will panic without `Atomics.wait`)
+/// - **`lock_sync_read/write`**: Automatically chooses blocking or spinning based on platform
+/// - **`lock_async_read/write`**: Always non-blocking, works everywhere
 ///
 /// ## Platform Behavior
 ///
-/// The RwLock transparently handles platform differences:
-/// - **Native (main or worker thread)**: Full blocking with thread parking
-/// - **WASM worker threads**: Blocks using `Atomics.wait`
-/// - **WASM main thread**: Spins to avoid "cannot block on main thread" panic
+/// The `_sync` methods transparently handle platform differences:
+/// - **Native**: Full blocking with thread parking
+/// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+/// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 ///
 /// ## When to Use RwLock vs Mutex
 ///

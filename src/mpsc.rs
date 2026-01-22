@@ -201,9 +201,9 @@ impl<T> Sender<T> {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (any thread)**: Uses efficient thread parking if the lock is contended
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking if contended
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking if the lock is contended
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking if contended
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     pub fn send_sync(&self, t: T) -> Result<(), SendError<T>> {
         if !self.shared.receiver_active.load(Ordering::SeqCst) {
             return Err(SendError(t));
@@ -327,9 +327,9 @@ impl<T> Receiver<T> {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (any thread)**: Uses efficient thread parking while waiting for data
-    /// - **WASM worker threads**: Uses `Atomics.wait` for proper blocking while waiting
-    /// - **WASM main thread**: Falls back to spinning to avoid panic
+    /// - **Native**: Uses efficient thread parking while waiting for data
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking while waiting
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     pub fn recv_sync(&self) -> Result<T, RecvError> {
         let mut queue = self.shared.queue.lock_sync();
         loop {
@@ -347,9 +347,9 @@ impl<T> Receiver<T> {
     ///
     /// # Platform Behavior
     ///
-    /// - **Native (any thread)**: Uses efficient thread parking with timeout
-    /// - **WASM worker threads**: Uses `Atomics.wait` with timeout
-    /// - **WASM main thread**: Falls back to spinning
+    /// - **Native**: Uses efficient thread parking with timeout
+    /// - **WASM with `Atomics.wait`**: Uses `Atomics.wait` with timeout
+    /// - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
     pub fn recv_sync_timeout(&self, deadline: Instant) -> Result<T, RecvTimeoutError> {
         let mut queue = match self.shared.queue.lock_sync_timeout(deadline) {
             Some(guard) => guard,

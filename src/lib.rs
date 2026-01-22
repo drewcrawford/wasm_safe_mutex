@@ -19,9 +19,9 @@
 //! This crate provides synchronization primitives that automatically adapt their
 //! locking strategy based on the runtime environment:
 //!
-//! - **Native (any thread)**: Uses efficient thread parking (`thread::park`)
-//! - **WASM worker threads**: Uses `Atomics.wait` when available
-//! - **WASM main thread**: Falls back to spinning (non-blocking busy-wait)
+//! - **Native**: Uses efficient thread parking (`thread::park`)
+//! - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
+//! - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 //!
 //! This means you can write code once and have it work correctly across all platforms,
 //! without worrying about whether you're on the main thread, a worker thread, native or WASM.
