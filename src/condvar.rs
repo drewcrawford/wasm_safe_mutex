@@ -20,6 +20,7 @@ use std::thread;
 use wasm_thread as thread;
 
 // Re-export for internal use within condvar submodules
+#[cfg(target_arch = "wasm32")]
 pub(crate) use crate::wasm_support::atomics_wait_supported;
 
 #[derive(Debug)]
