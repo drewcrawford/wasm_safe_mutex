@@ -84,6 +84,8 @@ pub use not_available::NotAvailable;
 /// ## Shared State Between Threads
 ///
 /// ```
+/// # // std::thread::spawn panics on wasm32
+/// # if cfg!(target_arch = "wasm32") { return; }
 /// use wasm_safe_mutex::Mutex;
 /// use std::sync::Arc;
 /// # use std::thread;
@@ -204,6 +206,8 @@ impl<T> Mutex<T> {
     /// ## Performance Consideration
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// use wasm_safe_mutex::Mutex;
     /// use std::sync::Arc;
     /// # use std::thread;
@@ -281,6 +285,8 @@ impl<T> Mutex<T> {
     /// ## Efficient Waiting
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// use wasm_safe_mutex::Mutex;
     /// use std::sync::Arc;
     /// # use std::thread;

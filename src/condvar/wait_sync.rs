@@ -26,6 +26,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
     /// # #[cfg(target_arch = "wasm32")]
@@ -88,6 +90,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
     /// # #[cfg(target_arch = "wasm32")]
@@ -157,6 +161,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
     /// # use std::thread;
@@ -222,6 +228,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
     /// # use std::thread;

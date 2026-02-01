@@ -20,6 +20,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// # test_executors::spin_on(async {
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
@@ -95,6 +97,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// # test_executors::spin_on(async {
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
@@ -147,6 +151,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// # test_executors::spin_on(async {
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;
@@ -301,6 +307,8 @@ impl Condvar {
     /// # Examples
     ///
     /// ```
+    /// # // std::thread::spawn panics on wasm32
+    /// # if cfg!(target_arch = "wasm32") { return; }
     /// # test_executors::spin_on(async {
     /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
     /// use std::sync::Arc;

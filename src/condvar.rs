@@ -69,6 +69,8 @@ static ASYNC_WAITER_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// ## Basic Usage
 ///
 /// ```
+/// # // std::thread::spawn panics on wasm32
+/// # if cfg!(target_arch = "wasm32") { return; }
 /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
 /// use std::sync::Arc;
 /// # use std::thread;
@@ -95,6 +97,8 @@ static ASYNC_WAITER_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// ## Producer-Consumer Pattern
 ///
 /// ```
+/// # // std::thread::spawn panics on wasm32
+/// # if cfg!(target_arch = "wasm32") { return; }
 /// use wasm_safe_mutex::{Mutex, condvar::Condvar};
 /// use std::sync::Arc;
 /// use std::collections::VecDeque;
