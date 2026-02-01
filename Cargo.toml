@@ -8,7 +8,7 @@ homepage = "https://sealedabstract.com/code/wasm_safe_mutex"
 description = "A suite of WebAssembly-safe synchronization primitives that paper over platform-specific locking constraints."
 license = "MIT OR Apache-2.0"
 keywords = ["concurrency", "lock", "mutex", "spinlock", "wasm"]
-categories = ["asynchronous", "concurrency", "wasm","data-structures","algorithms"]
+categories = ["concurrency", "wasm", "asynchronous", "rust-patterns", "web-programming"]
 exclude = [".*"]
 rust-version = "1.85.1"
 

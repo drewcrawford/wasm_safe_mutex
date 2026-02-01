@@ -46,6 +46,10 @@ struct Shared<T> {
     receiver_active: AtomicBool,
 }
 
+/// The sending half of the channel.
+///
+/// Messages can be sent through this channel with `send_sync`, `send_block`, `send_spin`, or `send_async`.
+/// The `Sender` can be cloned to create multiple producers that all send to the same `Receiver`.
 pub struct Sender<T> {
     shared: Arc<Shared<T>>,
 }
@@ -447,6 +451,11 @@ impl<T> Iterator for IntoIter<T> {
     }
 }
 
+/// An iterator over messages from the receiver.
+///
+/// This iterator is created by calling `into_iter` on a `Receiver`.
+/// It will block using the platform-appropriate strategy when waiting for messages,
+/// and will yield `None` when the channel is disconnected.
 pub struct IntoIter<T> {
     rx: Receiver<T>,
 }
