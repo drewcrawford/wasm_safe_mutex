@@ -33,7 +33,8 @@
 //! - **[`Mutex`]**: A mutual exclusion primitive for protecting shared data.
 //! - **[`RwLock`](rwlock::RwLock)**: A reader-writer lock that allows multiple concurrent readers or one exclusive writer.
 //! - **[`Condvar`](condvar::Condvar)**: A condition variable for blocking a thread while waiting for an event.
-//! - **[`mpsc`]**: A multi-producer, single-consumer channel for message passing.
+//! - **[`Spinlock`](spinlock::Spinlock)**: A spinlock for short-lived critical sections (primarily for internal use).
+//! - **[`mpsc`]**: A multi-producer, single-consumer channel for message passing between threads.
 //!
 //! # Features
 //!
@@ -77,6 +78,47 @@
 //! // Exclusive writer
 //! let mut w = rwlock.lock_sync_write();
 //! w.push(4);
+//! ```
+//!
+//! ## Channel (mpsc)
+//!
+//! The [`channel()`](mpsc::channel) function creates a [`Sender`](mpsc::Sender) and [`Receiver`](mpsc::Receiver) pair.
+//! The `Sender` can be cloned to create multiple producers, while the `Receiver` can be used directly
+//! or consumed as an iterator via [`IntoIter`](mpsc::IntoIter).
+//!
+//! ```
+//! use wasm_safe_mutex::mpsc::channel;
+//!
+//! let (tx, rx) = channel();
+//!
+//! // Send values from multiple producers
+//! tx.send_sync(1).unwrap();
+//! tx.send_sync(2).unwrap();
+//!
+//! // Receive values
+//! assert_eq!(rx.recv_sync().unwrap(), 1);
+//! assert_eq!(rx.recv_sync().unwrap(), 2);
+//! ```
+//!
+//! The receiver can also be used as an iterator:
+//!
+//! ```
+//! # use wasm_safe_mutex::mpsc::channel;
+//! # use std::thread;
+//! let (tx, rx) = channel();
+//!
+//! // Spawn a thread to send values
+//! thread::spawn(move || {
+//!     for i in 0..5 {
+//!         tx.send_sync(i).unwrap();
+//!     }
+//!     // tx is dropped here, closing the channel
+//! });
+//!
+//! // Iterate over received values until channel closes
+//! for value in rx {
+//!     println!("Received: {}", value);
+//! }
 //! ```
 //!
 //! ## Async Usage

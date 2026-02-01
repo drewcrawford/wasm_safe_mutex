@@ -21,7 +21,7 @@ This crate provides synchronization primitives that automatically adapt their lo
 - **WASM with `Atomics.wait`**: Uses `Atomics.wait` for proper blocking
 - **WASM without `Atomics.wait`**: Falls back to spinning (e.g., browser main thread)
 
-This means you can write code once and have it work correctly across all platforms, without worrying about `Atomics.wait` availability.
+This means you can write code once and have it work correctly across all platforms, without worrying about whether you're on the main thread, a worker thread, native or WASM.
 
 ## Primitives
 
@@ -30,18 +30,8 @@ This crate provides the following primitives, all of which support the adaptive 
 - **`Mutex`**: A mutual exclusion primitive for protecting shared data.
 - **`RwLock`**: A reader-writer lock that allows multiple concurrent readers or one exclusive writer.
 - **`Condvar`**: A condition variable for blocking a thread while waiting for an event.
-- **`mpsc`**: A multi-producer, single-consumer channel for message passing.
-
-## Four Horsemen
-
-This crate follows a design pattern called the "four horsemen", where most APIs come in fours:
-
-* The `_block` methods are a primitive that unconditionally block
-* The `_spin` methods a primitive that unconditionally spin
-* The `_sync` methods have an adaptive implementation that blocks if possible, spins if impossible
-* The `_async` methods have async behavior
-
-For most user code, you want to use `_sync` or `_async` high-level calls.
+- **`Spinlock`**: A spinlock for short-lived critical sections (primarily for internal use).
+- **`mpsc`**: A multi-producer, single-consumer channel for message passing between threads.
 
 ## Features
 
@@ -94,6 +84,48 @@ drop(r2);
 // Exclusive writer
 let mut w = rwlock.lock_sync_write();
 w.push(4);
+```
+
+### Channel (mpsc)
+
+The `channel()` function creates a `Sender` and `Receiver` pair.
+The `Sender` can be cloned to create multiple producers, while the `Receiver` can be used directly
+or consumed as an iterator via `IntoIter`.
+
+```rust
+use wasm_safe_mutex::mpsc::channel;
+
+let (tx, rx) = channel();
+
+// Send values from multiple producers
+tx.send_sync(1).unwrap();
+tx.send_sync(2).unwrap();
+
+// Receive values
+assert_eq!(rx.recv_sync().unwrap(), 1);
+assert_eq!(rx.recv_sync().unwrap(), 2);
+```
+
+The receiver can also be used as an iterator:
+
+```rust
+use wasm_safe_mutex::mpsc::channel;
+use std::thread;
+
+let (tx, rx) = channel();
+
+// Spawn a thread to send values
+thread::spawn(move || {
+    for i in 0..5 {
+        tx.send_sync(i).unwrap();
+    }
+    // tx is dropped here, closing the channel
+});
+
+// Iterate over received values until channel closes
+for value in rx {
+    println!("Received: {}", value);
+}
 ```
 
 ### Async Usage
