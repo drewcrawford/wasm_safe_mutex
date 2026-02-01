@@ -100,7 +100,8 @@ impl<T> fmt::Debug for Receiver<T> {
 }
 
 /// An error returned from the `try_recv` method.
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
+#[non_exhaustive]
 pub enum TryRecvError {
     /// The channel is empty.
     Empty,
@@ -108,8 +109,20 @@ pub enum TryRecvError {
     Disconnected,
 }
 
+impl fmt::Display for TryRecvError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TryRecvError::Empty => "receiving on an empty channel".fmt(f),
+            TryRecvError::Disconnected => "receiving on a closed channel".fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for TryRecvError {}
+
 /// An error returned from the `recv_timeout` methods.
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
+#[non_exhaustive]
 pub enum RecvTimeoutError {
     /// The receive operation timed out.
     Timeout,
@@ -117,12 +130,32 @@ pub enum RecvTimeoutError {
     Disconnected,
 }
 
+impl fmt::Display for RecvTimeoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RecvTimeoutError::Timeout => "timed out waiting on channel".fmt(f),
+            RecvTimeoutError::Disconnected => "channel is empty and disconnected".fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for RecvTimeoutError {}
+
 /// An error returned from the `recv` method.
-#[derive(PartialEq, Eq, Clone, Copy, Debug, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum RecvError {
     /// The channel has been disconnected.
     Disconnected,
 }
+
+impl fmt::Display for RecvError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        "receiving on a closed channel".fmt(f)
+    }
+}
+
+impl std::error::Error for RecvError {}
 
 /// An error returned from the `send` methods.
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -458,6 +491,12 @@ impl<T> Iterator for IntoIter<T> {
 /// and will yield `None` when the channel is disconnected.
 pub struct IntoIter<T> {
     rx: Receiver<T>,
+}
+
+impl<T> fmt::Debug for IntoIter<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IntoIter").finish_non_exhaustive()
+    }
 }
 
 impl<T> IntoIterator for Receiver<T> {

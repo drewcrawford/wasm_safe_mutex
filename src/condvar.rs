@@ -156,7 +156,7 @@ impl Condvar {
 
 /// A type indicating whether a timed wait on a condition variable returned
 /// due to a time out or not.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Default)]
 pub struct WaitTimeoutResult(bool);
 
 impl WaitTimeoutResult {
