@@ -183,6 +183,16 @@ impl<T> Sender<T> {
     }
 
     /// Sends a value on this channel, blocking if the lock is contended.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native**: Uses thread parking for efficient blocking
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`send_sync`](Self::send_sync) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`send_sync`](Self::send_sync).
     pub fn send_block(&self, t: T) -> Result<(), SendError<T>> {
         if !self.shared.receiver_active.load(Ordering::SeqCst) {
             return Err(SendError(t));
@@ -289,6 +299,16 @@ impl<T> Receiver<T> {
     }
 
     /// Receives a value from the channel, blocking if empty.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native**: Uses thread parking for efficient blocking
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait`
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`recv_sync`](Self::recv_sync) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`recv_sync`](Self::recv_sync).
     pub fn recv_block(&self) -> Result<T, RecvError> {
         let mut queue = self.shared.queue.lock_block();
         loop {
@@ -303,6 +323,16 @@ impl<T> Receiver<T> {
     }
 
     /// Receives a value from the channel, blocking if empty, with a timeout.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Native**: Uses thread parking with timeout
+    /// - **WASM with `Atomics.wait`**: Blocks using `Atomics.wait` with timeout
+    /// - **WASM without `Atomics.wait`**: **Will panic** - use [`recv_sync_timeout`](Self::recv_sync_timeout) instead
+    ///
+    /// This is a low-level primitive that unconditionally blocks. For adaptive
+    /// behavior that works everywhere (including browser main threads where
+    /// `Atomics.wait` is unavailable), use [`recv_sync_timeout`](Self::recv_sync_timeout).
     pub fn recv_block_timeout(&self, deadline: Instant) -> Result<T, RecvTimeoutError> {
         let mut queue = match self.shared.queue.lock_block_timeout(deadline) {
             Some(guard) => guard,
