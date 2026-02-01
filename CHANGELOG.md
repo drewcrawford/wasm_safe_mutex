@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-02-01
 
 ### Added
 
@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - MPSC error enums are now marked `#[non_exhaustive]` for future extensibility—handle those match arms defensively!
+  - This is a breaking change.
 - Improved documentation throughout, especially for `_block` methods
 - Enhanced test behaviors for better reliability
 - Updated CI configuration for more robust builds
@@ -97,7 +98,8 @@ The beginning! A WebAssembly-safe mutex that automatically adapts its locking st
 - Basic spinlock implementation
 - Support for both native and WASM targets
 
-[Unreleased]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/drewcrawford/wasm_safe_mutex/releases/tag/v0.1.0
