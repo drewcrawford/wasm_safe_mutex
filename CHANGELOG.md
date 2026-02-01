@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `WaitTimeoutResult` now implements `Default` and `Hash` traits for better ergonomics
+- MPSC error types (`RecvError`, `RecvTimeoutError`, `TryRecvError`) now implement `Error`, `Display`, and `Hash` traits
+- `IntoIter<T>` now implements `Debug` for better diagnostics
+
+### Changed
+
+- MPSC error enums are now marked `#[non_exhaustive]` for future extensibility—handle those match arms defensively!
+- Improved documentation throughout, especially for `_block` methods
+- Enhanced test behaviors for better reliability
+- Updated CI configuration for more robust builds
+- Bumped dependencies to latest compatible versions
+
+### Fixed
+
+- Disabled certain doctests on `wasm32` targets where `std::thread` is not supported—no more confusing test failures in WASM land
+
 ## [0.1.2] - 2025-11-28
 
 A quick dependency housekeeping stop—nothing to see here, move along!
