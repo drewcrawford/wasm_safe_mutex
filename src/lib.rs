@@ -143,6 +143,7 @@ pub mod mpsc;
 pub mod mutex;
 pub mod rwlock;
 pub mod spinlock;
+mod wasm_support;
 
 #[cfg(test)]
 mod tests;

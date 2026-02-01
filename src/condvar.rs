@@ -17,34 +17,10 @@ use web_time::Instant;
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::wasm_bindgen;
-#[cfg(target_arch = "wasm32")]
 use wasm_thread as thread;
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(inline_js = "
-export function supportsAtomicsWait() {
-    if (typeof SharedArrayBuffer === 'undefined') return false;
-    if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
-
-    try {
-        const sab = new SharedArrayBuffer(4);
-        const ia = new Int32Array(sab);
-        const result = Atomics.wait(ia, 0, 0, 0);
-        return result === 'timed-out' || result === 'not-equal';
-    } catch (_) {
-        return false;
-    }
-}
-")]
-extern "C" {
-    fn supportsAtomicsWait() -> bool;
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn atomics_wait_supported() -> bool {
-    supportsAtomicsWait()
-}
+// Re-export for internal use within condvar submodules
+pub(crate) use crate::wasm_support::atomics_wait_supported;
 
 #[derive(Debug)]
 struct AsyncWaiter {

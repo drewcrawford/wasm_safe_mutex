@@ -251,28 +251,7 @@ impl<T> RwLock<T> {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            use wasm_bindgen::prelude::wasm_bindgen;
-            //check if we're on the main thread
-            #[wasm_bindgen(inline_js = "
-export function supportsAtomicsWait() {
-    if (typeof SharedArrayBuffer === 'undefined') return false;
-    if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
-
-    try {
-        const sab = new SharedArrayBuffer(4);
-        const ia = new Int32Array(sab);
-        const result = Atomics.wait(ia, 0, 0, 0);
-        return result === 'timed-out' || result === 'not-equal';
-    } catch (_) {
-        return false;
-    }
-}
-")]
-            extern "C" {
-                fn supportsAtomicsWait() -> bool;
-            }
-
-            if supportsAtomicsWait() {
+            if crate::wasm_support::atomics_wait_supported() {
                 self.lock_block_read()
             } else {
                 // Fallback to spin lock if Atomics.wait is not supported

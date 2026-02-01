@@ -14,7 +14,7 @@ pub(crate) fn lock_sync<T>(mutex: &Mutex<T>) -> Guard<'_, T> {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        if crate::condvar::atomics_wait_supported() {
+        if crate::wasm_support::atomics_wait_supported() {
             mutex.lock_block()
         } else {
             // Fallback to spin lock if Atomics.wait is not supported
@@ -30,7 +30,7 @@ pub(crate) fn lock_sync_timeout<T>(mutex: &Mutex<T>, deadline: Instant) -> Optio
     }
     #[cfg(target_arch = "wasm32")]
     {
-        if crate::condvar::atomics_wait_supported() {
+        if crate::wasm_support::atomics_wait_supported() {
             mutex.lock_block_timeout(deadline)
         } else {
             mutex.lock_spin_timeout(deadline)
