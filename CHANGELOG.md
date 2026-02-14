@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-02-14
+
 ### Changed
 
 - Switched WASM threading integration to `wasm_safe_thread` for runtime behavior tailored to this crate's portability goals
@@ -105,7 +107,8 @@ The beginning! A WebAssembly-safe mutex that automatically adapts its locking st
 - Basic spinlock implementation
 - Support for both native and WASM targets
 
-[Unreleased]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/drewcrawford/wasm_safe_mutex/compare/v0.1.0...v0.1.1

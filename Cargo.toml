@@ -1,6 +1,6 @@
 [package]
 name = "wasm_safe_mutex"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.85.1"
 authors = ["Drew Crawford <drew@sealedabstract.com>"]
@@ -25,4 +25,3 @@ wasm_safe_thread = "0.1.0"
 
 [target.'cfg(target_arch="wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
-
