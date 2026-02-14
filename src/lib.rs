@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! A suite of WebAssembly-safe synchronization primitives that paper over platform-specific locking constraints.
 //!
-//! ![logo](https://github.com/drewcrawford/app_window/raw/main/art/logo.png)
+//! ![logo](https://github.com/drewcrawford/wasm_safe_mutex/raw/main/art/logo.png)
 //!
 //! # The Core Problem
 //!

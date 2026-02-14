@@ -48,7 +48,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-wasm_safe_mutex = "0.1.0"
+wasm_safe_mutex = "0.2.0"
 ```
 
 ## Examples
