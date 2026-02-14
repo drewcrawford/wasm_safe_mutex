@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering::{Acquire, Relaxed};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
-use wasm_thread as thread;
+use wasm_safe_thread as thread;
 
 impl<T> RwLock<T> {
     /// Attempts to acquire a read lock without blocking.
@@ -148,8 +148,7 @@ impl<T> RwLock<T> {
             });
             match r {
                 Ok(guard) => return guard,
-                //have to use the std version here
-                Err(NotAvailable) => std::thread::park(),
+                Err(NotAvailable) => thread::park(),
             }
         }
     }

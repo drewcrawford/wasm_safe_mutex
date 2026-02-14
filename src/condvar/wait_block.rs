@@ -65,7 +65,7 @@ impl Condvar {
         drop(guard);
 
         // Park this thread while waiting to be notified
-        std::thread::park();
+        thread::park();
 
         // Re-acquire the mutex before returning
         mutex.lock_sync()
@@ -237,7 +237,7 @@ impl Condvar {
 
             let timeout = deadline - now;
             // Park this thread while waiting for notification or timeout
-            std::thread::park_timeout(timeout);
+            thread::park_timeout(timeout);
 
             // Check if we were notified
             let notified = self.waiting_sync_threads.with_mut(|threads| {

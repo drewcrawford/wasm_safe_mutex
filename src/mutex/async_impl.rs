@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(target_arch = "wasm32")]
-use wasm_thread as thread;
+use wasm_safe_thread as thread;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;

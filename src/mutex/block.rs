@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{Mutex, NotAvailable};
 use crate::guard::Guard;
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
+#[cfg(target_arch = "wasm32")]
+use wasm_safe_thread as thread;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -26,7 +30,7 @@ pub(crate) fn lock_block<T>(mutex: &Mutex<T>) -> Guard<'_, T> {
         });
         match r {
             Ok(guard) => return guard,
-            Err(NotAvailable) => std::thread::park(),
+            Err(NotAvailable) => thread::park(),
         }
     }
 }
@@ -57,7 +61,7 @@ pub(crate) fn lock_block_timeout<T>(mutex: &Mutex<T>, deadline: Instant) -> Opti
             Ok(guard) => return Some(guard),
             Err(NotAvailable) => {
                 let remaining = deadline - Instant::now();
-                std::thread::park_timeout(remaining);
+                thread::park_timeout(remaining);
             }
         }
     }

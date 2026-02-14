@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(inline_js = "
-export function supportsAtomicsWait() {
+export function _wsm_supportsAtomicsWait() {
     if (typeof SharedArrayBuffer === 'undefined') return false;
     if (typeof Atomics === 'undefined' || typeof Atomics.wait !== 'function') return false;
 
@@ -20,10 +20,10 @@ export function supportsAtomicsWait() {
 }
 ")]
 extern "C" {
-    fn supportsAtomicsWait() -> bool;
+    fn _wsm_supportsAtomicsWait() -> bool;
 }
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn atomics_wait_supported() -> bool {
-    supportsAtomicsWait()
+    _wsm_supportsAtomicsWait()
 }
