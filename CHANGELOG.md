@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Switched WASM threading integration to `wasm_safe_thread` for runtime behavior tailored to this crate's portability goals
+- Refreshed crate and README documentation to keep examples and release guidance aligned with current usage
+
 ## [0.2.0] - 2026-02-01
 
 ### Added
